@@ -1,0 +1,176 @@
+#chat-panel {
+    width: 340px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border);
+}
+
+#character-select {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+}
+
+.character-portrait {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    cursor: pointer;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.character-portrait.active {
+    border-color: var(--accent);
+}
+
+.character-portrait.placeholder {
+    background: var(--bg-panel);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+}
+
+#chat-history {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.chat-message {
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    max-width: 85%;
+}
+
+.chat-message.player {
+    background: var(--bg-panel);
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+}
+
+.chat-message.character {
+    background: var(--accent);
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+}
+
+.chat-message .sender {
+    font-size: 0.7rem;
+    font-weight: bold;
+    margin-bottom: 2px;
+    opacity: 0.7;
+}
+
+#chat-input-area {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-top: 1px solid var(--border);
+}
+
+#chat-input {
+    flex: 1;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.4rem;
+    font-size: 0.85rem;
+    resize: none;
+}
+
+#chat-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+#choice-area {
+    padding: 0.5rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.choice-button {
+    background: var(--bg-panel);
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+}
+
+.choice-button:hover {
+    background: var(--accent);
+}
+
+/* Edit overlay */
+#edit-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+#edit-container {
+    display: flex;
+    gap: 1rem;
+    max-width: 90vw;
+    max-height: 90vh;
+}
+
+#edit-canvas {
+    border: 2px solid var(--accent);
+    cursor: crosshair;
+    max-width: 60vw;
+    max-height: 80vh;
+}
+
+#edit-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 220px;
+}
+
+#edit-controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+}
+
+#edit-prompt {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.4rem;
+    font-size: 0.85rem;
+}
+
+#edit-tools {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+#edit-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: auto;
+}

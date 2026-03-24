@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comiventure</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="stylesheet" href="/static/css/comic.css">
+    <link rel="stylesheet" href="/static/css/chat.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header id="header">
+            <h1>Comiventure</h1>
+            <nav>
+                <button id="btn-new-story">New Story</button>
+                <button id="btn-save">Save</button>
+                <button id="btn-load">Load</button>
+            </nav>
+        </header>
+
+        <!-- Main content area -->
+        <main id="main">
+            <!-- Comic page viewer -->
+            <section id="comic-viewer">
+                <div id="page-container">
+                    <!-- Panels rendered here by JS -->
+                </div>
+                <div id="page-nav">
+                    <button id="btn-prev-page" disabled>&larr; Prev</button>
+                    <span id="page-indicator">Page 1</span>
+                    <button id="btn-next-page" disabled>Next &rarr;</button>
+                </div>
+            </section>
+
+            <!-- Chat / interaction panel -->
+            <aside id="chat-panel">
+                <div id="character-select">
+                    <!-- Character portraits rendered here -->
+                </div>
+                <div id="chat-history">
+                    <!-- Chat messages rendered here -->
+                </div>
+                <div id="chat-input-area">
+                    <textarea id="chat-input" placeholder="Say something..." rows="2"></textarea>
+                    <button id="btn-send">Send</button>
+                </div>
+                <div id="choice-area" hidden>
+                    <!-- Dialogue choices rendered here -->
+                </div>
+            </aside>
+        </main>
+
+        <!-- Edit overlay (shown when editing a panel) -->
+        <div id="edit-overlay" hidden>
+            <div id="edit-container">
+                <canvas id="edit-canvas"></canvas>
+                <div id="edit-controls">
+                    <label>Edit prompt:
+                        <input type="text" id="edit-prompt" placeholder="e.g. change the cat to a dog">
+                    </label>
+                    <div id="edit-tools">
+                        <button id="btn-brush" class="active">Brush</button>
+                        <button id="btn-eraser">Eraser</button>
+                        <label>Size: <input type="range" id="brush-size" min="5" max="80" value="20"></label>
+                    </div>
+                    <div id="edit-actions">
+                        <button id="btn-apply-edit">Apply Edit</button>
+                        <button id="btn-cancel-edit">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Generation progress indicator -->
+        <div id="progress-bar" hidden>
+            <div id="progress-fill"></div>
+            <span id="progress-text">Generating...</span>
+        </div>
+    </div>
+
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/comic.js"></script>
+    <script src="/static/js/chat.js"></script>
+    <script src="/static/js/editor.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
