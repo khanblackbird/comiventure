@@ -19,8 +19,8 @@ body {
     font-family: 'Segoe UI', system-ui, sans-serif;
     background: var(--bg-primary);
     color: var(--text-primary);
-    height: 100vh;
-    overflow: hidden;
+    min-height: 100vh;
+    margin: 0;
 }
 
 /* Splash screen */
@@ -362,6 +362,7 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    overflow: hidden;
 }
 
 #header {
