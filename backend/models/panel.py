@@ -34,6 +34,7 @@ class Panel(Emitter):
         self.is_animated = is_animated
         self.narration = narration
         self.shot_type = shot_type  # "wide", "medium", "close-up", "extreme close-up", "over-shoulder", "bird's eye"
+        self.negative_prompt = ""  # panel-specific negative
         self.scripts: dict[str, Script] = {}
         self.source: str = "empty"
 
@@ -152,6 +153,7 @@ class Panel(Emitter):
                 "image_hash": self.image_hash,
                 "narration": self.narration,
                 "shot_type": self.shot_type,
+                "negative_prompt": self.negative_prompt,
                 "scripts": {
                     character_id: script.to_dict()
                     for character_id, script in self.scripts.items()
@@ -167,6 +169,7 @@ class Panel(Emitter):
             "is_animated": self.is_animated,
             "narration": self.narration,
             "shot_type": self.shot_type,
+            "negative_prompt": self.negative_prompt,
             "scripts": {
                 character_id: script.to_dict()
                 for character_id, script in self.scripts.items()

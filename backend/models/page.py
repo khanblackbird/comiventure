@@ -35,6 +35,7 @@ class Page(Emitter):
         self.time_of_day = time_of_day  # "dawn", "noon", "dusk", "night"
         self.weather = weather          # "rain", "snow", "clear", "fog", "storm"
         self.lighting = lighting        # "firelight", "neon", "moonlight", "harsh sun"
+        self.negative_prompt = ""       # page-wide negative
 
     def create_panel(self, panel_id: str | None = None, character_ids: list[str] | None = None, **kwargs) -> Panel:
         """Create a panel within this page.
@@ -134,6 +135,7 @@ class Page(Emitter):
                 "time_of_day": self.time_of_day,
                 "weather": self.weather,
                 "lighting": self.lighting,
+                "negative_prompt": self.negative_prompt,
             }
         }
 
@@ -149,4 +151,5 @@ class Page(Emitter):
             "time_of_day": self.time_of_day,
             "weather": self.weather,
             "lighting": self.lighting,
+            "negative_prompt": self.negative_prompt,
         }

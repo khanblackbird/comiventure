@@ -31,6 +31,7 @@ class Chapter(Emitter):
         self.synopsis = synopsis
         self.default_location = default_location  # "enchanted forest", "space station"
         self.default_time_of_day = default_time_of_day  # "night", "dawn"
+        self.negative_prompt = ""  # chapter-wide negative
         self.is_solo = is_solo  # True = character sheet chapter (1 character only)
         self.pages: list[Page] = []
         self.character_ids: list[str] = []
@@ -168,6 +169,7 @@ class Chapter(Emitter):
             "character_ids": self.character_ids,
             "default_location": self.default_location,
             "default_time_of_day": self.default_time_of_day,
+            "negative_prompt": self.negative_prompt,
             "is_solo": self.is_solo,
             "pages": [page.to_dict() for page in self.pages],
         }

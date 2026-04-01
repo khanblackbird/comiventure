@@ -35,6 +35,7 @@ class Script(Emitter):
         self.emotion = emotion
         self.pose = pose      # "standing", "sitting", "crouching", "leaning"
         self.outfit = outfit  # overrides character default: "armor", "casual", "formal"
+        self.negative_prompt = ""  # per-character negative: "animal ears, tail, fur"
         self.source: str = "empty"  # 'empty', 'ai', 'manual'
 
     def update(
@@ -45,6 +46,7 @@ class Script(Emitter):
         emotion: Optional[str] = None,
         pose: Optional[str] = None,
         outfit: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
         source: str = "manual",
     ) -> None:
         """Update script content and emit upward."""
@@ -60,6 +62,8 @@ class Script(Emitter):
             self.pose = pose
         if outfit is not None:
             self.outfit = outfit
+        if negative_prompt is not None:
+            self.negative_prompt = negative_prompt
         self.source = source
         self.emit_up("script_updated", self)
 
@@ -73,6 +77,7 @@ class Script(Emitter):
                 "emotion": self.emotion,
                 "pose": self.pose,
                 "outfit": self.outfit,
+                "negative_prompt": self.negative_prompt,
             }
         }
 
@@ -103,5 +108,6 @@ class Script(Emitter):
             "emotion": self.emotion,
             "pose": self.pose,
             "outfit": self.outfit,
+            "negative_prompt": self.negative_prompt,
             "source": self.source,
         }

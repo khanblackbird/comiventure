@@ -284,3 +284,56 @@ class PromptComposer:
         if page_prompt:
             return page_prompt
         return chapter_prompt
+
+    def compose_negative(
+        self,
+        panel: Panel,
+        characters: list[Character],
+    ) -> str:
+        """Collect negative prompts from the entire hierarchy and combine them.
+
+        Stacks: Story + Chapter + Page + Panel + per-character negatives.
+        Per-character negatives from the Character object apply whenever
+        that character appears. Script-level negatives are per-panel overrides.
+
+        Order: global defaults, story, chapter, page, panel, character-level.
+        """
+        from backend.generator.panel_generator import DEFAULT_NEGATIVE
+
+        parts = [DEFAULT_NEGATIVE]
+
+        # Walk up from panel to collect hierarchy negatives
+        node = panel
+        hierarchy_negatives = []
+        while node is not None:
+            neg = getattr(node, 'negative_prompt', '')
+            if neg:
+                hierarchy_negatives.append(neg)
+            node = node._parent if hasattr(node, '_parent') else None
+
+        # Reverse so story is first, panel is last
+        hierarchy_negatives.reverse()
+        parts.extend(hierarchy_negatives)
+
+        # Character-level negatives (from Character object — always applies)
+        active = self._active_characters(panel, characters)
+        for character in active:
+            if character.negative_prompt:
+                parts.append(character.negative_prompt)
+
+            # Script-level negative (per-panel override)
+            script = panel.get_script(character.character_id)
+            if script and script.negative_prompt:
+                parts.append(script.negative_prompt)
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique_parts = []
+        for part in parts:
+            for token in part.split(', '):
+                token = token.strip()
+                if token and token not in seen:
+                    seen.add(token)
+                    unique_parts.append(token)
+
+        return ", ".join(unique_parts)

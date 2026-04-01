@@ -797,6 +797,7 @@ class ComiventureApp {
             { key: 'pose', placeholder: 'Pose (e.g. standing, sitting, crouching)...', value: script.pose },
             { key: 'outfit', placeholder: 'Outfit (overrides default)...', value: script.outfit },
             { key: 'direction', placeholder: 'Direction...', value: script.direction },
+            { key: 'negative_prompt', placeholder: 'Negative (e.g. animal ears, tail)...', value: script.negative_prompt },
         ];
 
         for (const field of fields) {
@@ -1907,6 +1908,29 @@ class ComiventureApp {
             { key: 'accessories', label: 'Accessories' },
             { key: 'art_style_notes', label: 'Style notes' },
         ];
+
+        // Character-level negative prompt (separate from appearance properties)
+        const negRow = document.createElement('div');
+        negRow.className = 'appearance-field-row';
+        const negLabel = document.createElement('label');
+        negLabel.className = 'appearance-label';
+        negLabel.textContent = 'Negative';
+        negRow.appendChild(negLabel);
+        const negInput = document.createElement('input');
+        negInput.type = 'text';
+        negInput.className = 'appearance-input';
+        negInput.value = character.negative_prompt || '';
+        negInput.placeholder = 'Always exclude (e.g. animal ears, tail, fur)...';
+        negInput.addEventListener('change', async () => {
+            try {
+                await api.updateCharacter(this._detailCharacterId, {
+                    negative_prompt: negInput.value,
+                });
+                character.negative_prompt = negInput.value;
+            } catch (e) { console.error('Failed to save negative:', e); }
+        });
+        negRow.appendChild(negInput);
+        propsContainer.appendChild(negRow);
 
         for (const field of appearanceFields) {
             const row = document.createElement('div');

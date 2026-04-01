@@ -44,6 +44,7 @@ class UpdateCharacterRequest(BaseModel):
     description: Optional[str] = None
     personality_prompt: Optional[str] = None
     appearance_prompt: Optional[str] = None
+    negative_prompt: Optional[str] = None
 
 
 class CreateChapterRequest(BaseModel):
@@ -59,6 +60,7 @@ class UpdateChapterRequest(BaseModel):
     synopsis: Optional[str] = None
     default_location: Optional[str] = None
     default_time_of_day: Optional[str] = None
+    negative_prompt: Optional[str] = None
 
 
 class CreatePageRequest(BaseModel):
@@ -73,6 +75,7 @@ class UpdatePageRequest(BaseModel):
     time_of_day: Optional[str] = None
     weather: Optional[str] = None
     lighting: Optional[str] = None
+    negative_prompt: Optional[str] = None
 
 
 class CreatePanelRequest(BaseModel):
@@ -82,6 +85,7 @@ class CreatePanelRequest(BaseModel):
 class UpdatePanelRequest(BaseModel):
     shot_type: Optional[str] = None
     narration: Optional[str] = None
+    negative_prompt: Optional[str] = None
 
 
 class CreateScriptRequest(BaseModel):
@@ -102,6 +106,7 @@ class UpdateScriptRequest(BaseModel):
     emotion: Optional[str] = None
     pose: Optional[str] = None
     outfit: Optional[str] = None
+    negative_prompt: Optional[str] = None
     source: str = "manual"
 
 
@@ -188,6 +193,7 @@ class UpdateStoryRequest(BaseModel):
     synopsis: Optional[str] = None
     art_style: Optional[str] = None
     genre: Optional[str] = None
+    negative_prompt: Optional[str] = None
 
 
 @router.put("/api/story")
@@ -202,6 +208,8 @@ async def update_story(request: UpdateStoryRequest):
         story.art_style = request.art_style
     if request.genre is not None:
         story.genre = request.genre
+    if request.negative_prompt is not None:
+        story.negative_prompt = request.negative_prompt
     story.emit("story_updated", story)
     return story.to_dict()
 
@@ -372,6 +380,8 @@ async def update_character(character_id: str, request: UpdateCharacterRequest):
         personality_prompt=request.personality_prompt,
         appearance_prompt=request.appearance_prompt,
     )
+    if request.negative_prompt is not None:
+        character.negative_prompt = request.negative_prompt
     return character.to_dict()
 
 
@@ -759,6 +769,8 @@ async def update_chapter(chapter_id: str, request: UpdateChapterRequest):
         chapter.default_location = request.default_location
     if request.default_time_of_day is not None:
         chapter.default_time_of_day = request.default_time_of_day
+    if request.negative_prompt is not None:
+        chapter.negative_prompt = request.negative_prompt
     chapter.emit_up("chapter_updated", chapter)
     return chapter.to_dict()
 
@@ -791,6 +803,8 @@ async def update_page(page_id: str, request: UpdatePageRequest):
         page.weather = request.weather
     if request.lighting is not None:
         page.lighting = request.lighting
+    if request.negative_prompt is not None:
+        page.negative_prompt = request.negative_prompt
     page.emit_up("page_updated", page)
     return page.to_dict()
 
@@ -825,6 +839,8 @@ async def update_panel(panel_id: str, request: UpdatePanelRequest):
         panel.shot_type = request.shot_type
     if request.narration is not None:
         panel.narration = request.narration
+    if request.negative_prompt is not None:
+        panel.negative_prompt = request.negative_prompt
     panel.emit_up("panel_updated", panel)
     return panel.to_dict()
 
@@ -869,6 +885,7 @@ async def update_script(script_id: str, request: UpdateScriptRequest):
         emotion=request.emotion,
         pose=request.pose,
         outfit=request.outfit,
+        negative_prompt=request.negative_prompt,
         source=request.source,
     )
     return script.to_dict()
@@ -929,7 +946,11 @@ async def generate_panel_image(request: GeneratePanelRequest):
     ip_bridge = IPAdapterBridge(content_store) if content_store else None
     panel_gen = PanelGenerator(image_generator, ip_adapter_bridge=ip_bridge)
     prompt = await panel_gen.compose_prompt(panel, characters)
-    negative_prompt = request.negative_prompt or panel_gen.compose_negative_prompt()
+    # Compose negative from hierarchy (story + chapter + page + panel + characters)
+    # User override takes priority if provided
+    negative_prompt = request.negative_prompt or (
+        panel_gen.prompt_composer.compose_negative(panel, characters)
+    )
 
     generation_params = {
         "width": request.width,

@@ -29,6 +29,7 @@ class Story(Emitter):
         synopsis: str = "",
         art_style: str = "",
         genre: str = "",
+        negative_prompt: str = "",
     ) -> None:
         super().__init__()
         self.story_id = story_id
@@ -36,6 +37,7 @@ class Story(Emitter):
         self.synopsis = synopsis
         self.art_style = art_style      # "manga", "western comic", "watercolor"
         self.genre = genre              # "fantasy", "sci-fi", "slice of life"
+        self.negative_prompt = negative_prompt  # global negative (always applied)
         self.characters: dict[str, Character] = {}
         self.chapters: dict[str, Chapter] = {}
 
@@ -347,6 +349,7 @@ class Story(Emitter):
             "story": {
                 "art_style": self.art_style,
                 "genre": self.genre,
+                "negative_prompt": self.negative_prompt,
             }
         }
 
@@ -357,6 +360,7 @@ class Story(Emitter):
             "synopsis": self.synopsis,
             "art_style": self.art_style,
             "genre": self.genre,
+            "negative_prompt": self.negative_prompt,
             "characters": {
                 character_id: character.to_dict()
                 for character_id, character in self.characters.items()

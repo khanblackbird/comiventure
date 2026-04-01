@@ -121,6 +121,7 @@ def _rebuild_story(data: dict) -> Story:
         synopsis=data.get("synopsis", ""),
         art_style=data.get("art_style", ""),
         genre=data.get("genre", ""),
+        negative_prompt=data.get("negative_prompt", ""),
     )
 
     # First pass: create all chapters
@@ -134,6 +135,7 @@ def _rebuild_story(data: dict) -> Story:
             default_time_of_day=chapter_data.get("default_time_of_day", ""),
             is_solo=chapter_data.get("is_solo", False),
         )
+        chapter.negative_prompt = chapter_data.get("negative_prompt", "")
         # Restore character_ids directly from serialized data
         chapter.character_ids = chapter_data.get("character_ids", [])
 
@@ -150,6 +152,7 @@ def _rebuild_story(data: dict) -> Story:
                 weather=page_data.get("weather", ""),
                 lighting=page_data.get("lighting", ""),
             )
+            page.negative_prompt = page_data.get("negative_prompt", "")
 
             # Rebuild panels
             for panel_data in page_data.get("panels", []):
@@ -162,6 +165,7 @@ def _rebuild_story(data: dict) -> Story:
                     shot_type=panel_data.get("shot_type", ""),
                 )
                 panel.source = panel_data.get("source", "empty")
+                panel.negative_prompt = panel_data.get("negative_prompt", "")
 
                 # Rebuild scripts
                 for character_id, script_data in panel_data.get("scripts", {}).items():
@@ -176,6 +180,7 @@ def _rebuild_story(data: dict) -> Story:
                         outfit=script_data.get("outfit", ""),
                     )
                     script.source = script_data.get("source", "empty")
+                    script.negative_prompt = script_data.get("negative_prompt", "")
                     panel.add_script(script)
                     story.register_script(script)
 
@@ -216,6 +221,7 @@ def _rebuild_story(data: dict) -> Story:
 
         # Restore conversations
         character.conversations = character_data.get("conversations", [])
+        character.negative_prompt = character_data.get("negative_prompt", "")
 
         # Wire character to story WITHOUT cascade — data already loaded
         character.set_parent(story)

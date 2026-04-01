@@ -44,6 +44,7 @@ class Character(Emitter):
         self.portrait_path = portrait_path
         self.is_temporary = is_temporary
         self.page_scope = page_scope
+        self.negative_prompt = ""  # per-character negative: "animal ears, tail" for humans
         self.chapters: list[Chapter] = []
         self.conversations: list[dict] = []  # saved conversation bank
 
@@ -154,6 +155,7 @@ class Character(Emitter):
                 "description": self.description,
                 "personality_prompt": self.personality_prompt,
                 "appearance_prompt": self.appearance_prompt,
+                "negative_prompt": self.negative_prompt,
                 "appearance": self.appearance.to_dict(),
                 "profile": self.profile.to_dict(),
             }
@@ -178,6 +180,7 @@ class Character(Emitter):
             "description": self.description,
             "personality_prompt": self.personality_prompt,
             "appearance_prompt": self.appearance_prompt,
+            "negative_prompt": self.negative_prompt,
             "appearance": self.appearance.to_dict(),
             "profile": self.profile.to_dict(),
             "portrait_path": self.portrait_path,
