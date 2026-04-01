@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from backend.models.story import Story
-from backend.models.scene import Scene
-from backend.models.panel import Panel
+from backend.models.chapter import Chapter
 from backend.models.page import Page
+from backend.models.panel import Panel
+from backend.models.script import Script
 from .character_ai import CharacterAI
 
 
 class StoryEngine:
-    """Orchestrates the story flow — dialogue, scene transitions, panel creation."""
+    """Orchestrates the story flow using the emission-based object hierarchy.
+
+    Does not directly wire objects together — it creates them and lets
+    the hierarchy handle context propagation and event emission.
+    """
 
     def __init__(self, story: Story, character_ai: CharacterAI):
         self.story = story
@@ -25,42 +28,39 @@ class StoryEngine:
         if not character:
             return {"error": f"Character {character_id} not found"}
 
-        character.add_dialogue("user", message)
-
-        # TODO: generate response via CharacterAI
-        # TODO: determine if scene should change
-        # TODO: generate panel data for the new story beat
+        # TODO: generate response via CharacterAI using character.get_context()
+        # TODO: create script from response
+        # TODO: propagation handles the rest
         raise NotImplementedError
 
-    async def transition_scene(self, scene_id: str) -> Scene:
-        """Move the story to a new scene."""
-        scene = self.story.scenes.get(scene_id)
-        if not scene:
-            raise ValueError(f"Scene {scene_id} not found")
-        self.story.current_scene_id = scene_id
-        return scene
+    def create_chapter(self, chapter_id: str, title: str, character_ids: list[str]) -> Chapter:
+        """Create a shared chapter between characters — forming their relationship."""
+        chapter = Chapter(chapter_id=chapter_id, title=title)
+        self.story.create_shared_chapter(chapter, character_ids)
+        return chapter
 
-    def create_panel(self, scene_id: str, image_prompt: str) -> Panel:
-        """Create a new panel and add it to the current page."""
-        panel = Panel(
-            panel_id=f"panel-{len(self.story.pages)}-{self._current_page_panel_count()}",
-            scene_id=scene_id,
-            image_prompt=image_prompt,
+    def create_page(self, chapter: Chapter, page_number: int) -> Page:
+        """Add a new page to a chapter."""
+        page = Page(
+            page_id=f"page-{chapter.chapter_id}-{page_number}",
+            page_number=page_number,
         )
-        self._ensure_current_page().add_panel(panel)
+        chapter.add_page(page)
+        return page
+
+    def create_panel(self, page: Page) -> Panel:
+        """Create a new panel on a page."""
+        panel = Panel(
+            panel_id=f"panel-{page.page_id}-{page.panel_count()}",
+        )
+        page.add_panel(panel)
         return panel
 
-    def _ensure_current_page(self) -> Page:
-        """Get the current page or create a new one."""
-        if not self.story.pages or self.story.pages[-1].panel_count() >= 6:
-            page = Page(
-                page_id=f"page-{len(self.story.pages)}",
-                page_number=len(self.story.pages) + 1,
-            )
-            self.story.add_page(page)
-        return self.story.pages[-1]
-
-    def _current_page_panel_count(self) -> int:
-        if not self.story.pages:
-            return 0
-        return self.story.pages[-1].panel_count()
+    def create_script(self, panel: Panel, character_id: str) -> Script:
+        """Create a script for a character in a panel."""
+        script = Script(
+            script_id=f"script-{panel.panel_id}-{character_id}",
+            character_id=character_id,
+        )
+        panel.add_script(script)
+        return script

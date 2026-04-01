@@ -1,4 +1,4 @@
-from .comfyui_bridge import ComfyUIBridge
+from .image_generator import ImageGenerator
 from .panel_generator import PanelGenerator
 
-__all__ = ["ComfyUIBridge", "PanelGenerator"]
+__all__ = ["ImageGenerator", "PanelGenerator"]

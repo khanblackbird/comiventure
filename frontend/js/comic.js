@@ -6,7 +6,8 @@ class ComicRenderer {
     constructor(containerElement) {
         this.container = containerElement;
         this.currentPageData = null;
-        this.onPanelClick = null;
+        this.onPanelSelect = null;
+        this.selectedPanelId = null;
     }
 
     renderPage(pageData) {
@@ -28,7 +29,8 @@ class ComicRenderer {
         panel.className = 'comic-panel';
         panel.dataset.panelId = panelData.panel_id;
 
-        // Image or video content
+        // Image or video content — supports both paths and content hashes
+        const imageSource = panelData.image_url || panelData.image_path;
         if (panelData.is_animated && panelData.video_path) {
             const video = document.createElement('video');
             video.src = panelData.video_path;
@@ -36,9 +38,9 @@ class ComicRenderer {
             video.loop = true;
             video.muted = true;
             panel.appendChild(video);
-        } else if (panelData.image_path) {
+        } else if (imageSource) {
             const img = document.createElement('img');
-            img.src = panelData.image_path;
+            img.src = imageSource;
             img.alt = 'Comic panel';
             panel.appendChild(img);
         } else {
@@ -48,49 +50,70 @@ class ComicRenderer {
             panel.appendChild(placeholder);
         }
 
-        // Narration box
-        if (panelData.narration) {
-            const narration = document.createElement('div');
-            narration.className = 'narration-box';
-            narration.textContent = panelData.narration;
-            panel.appendChild(narration);
-        }
+        // Dialogue bar at the bottom
+        const hasNarration = panelData.narration && panelData.narration.trim();
+        const hasDialogue = panelData.dialogue && panelData.dialogue.length > 0;
 
-        // Speech bubbles
-        if (panelData.dialogue) {
-            for (let bubbleIndex = 0; bubbleIndex < panelData.dialogue.length; bubbleIndex++) {
-                const dialogue = panelData.dialogue[bubbleIndex];
-                const bubble = this._createBubble(dialogue, bubbleIndex);
-                panel.appendChild(bubble);
+        if (hasNarration || hasDialogue) {
+            const dialogueBar = document.createElement('div');
+            dialogueBar.className = 'panel-dialogue';
+
+            if (hasNarration) {
+                const narration = document.createElement('div');
+                narration.className = 'narration-box';
+                narration.textContent = panelData.narration;
+                dialogueBar.appendChild(narration);
             }
+
+            if (hasDialogue) {
+                for (const dialogue of panelData.dialogue) {
+                    const bubble = this._createBubble(dialogue);
+                    dialogueBar.appendChild(bubble);
+                }
+            }
+
+            panel.appendChild(dialogueBar);
         }
 
-        // Click to edit
+        // Click to select
         panel.addEventListener('click', () => {
-            if (this.onPanelClick) {
-                this.onPanelClick(panelData);
+            this._selectPanel(panelData.panel_id);
+            if (this.onPanelSelect) {
+                this.onPanelSelect(panelData);
             }
         });
 
         return panel;
     }
 
-    _createBubble(dialogue, index) {
+    _createBubble(dialogue) {
         const bubble = document.createElement('div');
         bubble.className = 'speech-bubble';
-        bubble.style.top = `${20 + index * 60}px`;
-        bubble.style.left = `${10 + (index % 2) * 40}%`;
 
-        const speaker = document.createElement('div');
+        const speaker = document.createElement('span');
         speaker.className = 'speaker';
-        speaker.textContent = dialogue.character;
+        speaker.textContent = dialogue.character + ':';
         bubble.appendChild(speaker);
 
-        const text = document.createElement('div');
-        text.textContent = dialogue.text;
+        const text = document.createTextNode(' ' + dialogue.text);
         bubble.appendChild(text);
 
         return bubble;
+    }
+
+    _selectPanel(panelId) {
+        this.selectedPanelId = panelId;
+        const allPanels = this.container.querySelectorAll('.comic-panel');
+        for (const panel of allPanels) {
+            panel.classList.toggle('selected', panel.dataset.panelId === panelId);
+        }
+    }
+
+    getSelectedPanelData() {
+        if (!this.selectedPanelId || !this.currentPageData) return null;
+        return this.currentPageData.panels.find(
+            panel => panel.panel_id === this.selectedPanelId
+        ) || null;
     }
 
     renderPlaceholderPage(panelCount = 4) {
@@ -100,10 +123,13 @@ class ComicRenderer {
             panels: Array.from({ length: panelCount }, (_, index) => ({
                 panel_id: `placeholder-${index}`,
                 image_path: null,
+                image_url: null,
                 video_path: null,
                 is_animated: false,
                 dialogue: [],
                 narration: '',
+                scene_prompt: '',
+                character_ids: [],
             })),
         };
         this.renderPage(placeholderData);

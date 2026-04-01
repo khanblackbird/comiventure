@@ -9,14 +9,290 @@
     <link rel="stylesheet" href="/static/css/chat.css">
 </head>
 <body>
-    <div id="app">
+    <!-- Splash screen -->
+    <div id="splash">
+        <div id="splash-content">
+            <h1 class="splash-title">Comiventure</h1>
+            <p class="splash-subtitle">Interactive Comic Book Adventures</p>
+
+            <div id="splash-actions">
+                <button id="btn-splash-new" class="splash-btn primary">New Story</button>
+                <label class="splash-btn">
+                    Load File
+                    <input type="file" id="splash-load-file" accept=".cvn" hidden>
+                </label>
+            </div>
+
+            <div id="saved-stories">
+                <h3>Saved Stories</h3>
+                <div id="saved-stories-list">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chapter selector -->
+    <div id="chapter-select" class="hidden">
+        <div id="chapter-select-content">
+            <div id="chapter-select-header">
+                <button id="btn-chapter-back">&larr; Stories</button>
+                <h2 id="chapter-select-title">Story Title</h2>
+                <button id="btn-chapter-manage-chars">Characters</button>
+            </div>
+            <!-- Story settings -->
+            <div id="story-settings" class="context-fields">
+                <input type="text" id="story-art-style" placeholder="Art style (e.g. manga, watercolor, western comic)">
+                <input type="text" id="story-genre" placeholder="Genre (e.g. fantasy, sci-fi, slice of life)">
+                <textarea id="story-synopsis" rows="2" placeholder="Story synopsis..."></textarea>
+            </div>
+
+            <div id="chapter-grid">
+                <!-- Chapter cards populated by JS -->
+            </div>
+            <div id="chapter-select-actions">
+                <button id="btn-add-chapter-select">+ New Chapter</button>
+            </div>
+
+            <div id="model-selector">
+                <h3>Image Model</h3>
+                <div id="model-options">
+                </div>
+            </div>
+
+            <div id="adapter-section">
+                <h3>Story Adapter</h3>
+                <div id="adapter-status">
+                    <span id="adapter-feedback-summary"></span>
+                </div>
+                <div class="adapter-controls">
+                    <label class="feedback-label">Rank:
+                        <select id="adapter-rank-chapter" class="small-select">
+                            <option value="2">2</option>
+                            <option value="4" selected>4</option>
+                            <option value="8">8</option>
+                            <option value="16">16</option>
+                            <option value="32">32</option>
+                        </select>
+                    </label>
+                    <label class="feedback-label">Epochs:
+                        <select id="adapter-epochs-chapter" class="small-select">
+                            <option value="50">50</option>
+                            <option value="100" selected>100</option>
+                            <option value="250">250</option>
+                            <option value="500">500</option>
+                            <option value="1000">1000</option>
+                        </select>
+                    </label>
+                    <button id="btn-train-adapter-chapter" disabled>Train Adapter</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Character screen — full view for character management -->
+    <div id="character-screen" class="hidden">
+        <div id="character-screen-header">
+            <button id="btn-char-screen-back">&larr; Chapters</button>
+            <h2>Characters</h2>
+            <span id="char-screen-model" class="model-indicator"></span>
+            <div class="header-actions">
+                <label class="header-btn primary">
+                    New from Image
+                    <input type="file" id="new-char-from-image" accept="image/*" hidden>
+                </label>
+                <button id="btn-char-screen-add">+ Add Manually</button>
+            </div>
+        </div>
+        <div id="character-screen-body">
+            <!-- Character list sidebar -->
+            <div id="char-list-panel">
+                <div id="char-list-items">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- Selected character detail -->
+            <div id="char-detail-panel">
+                <div id="char-detail-empty">
+                    <p class="hint">Select a character to view their sheet</p>
+                </div>
+
+                <!-- New-from-image creation form (shown after analysis) -->
+                <div id="char-create-from-image" hidden>
+                    <h3>New Character from Image</h3>
+                    <div id="char-create-preview-area">
+                        <img id="char-create-preview" alt="Uploaded image">
+                    </div>
+                    <div id="char-create-caption" class="hint"></div>
+                    <div class="char-create-fields">
+                        <input type="text" id="char-create-name" placeholder="Character name (required)">
+                        <input type="text" id="char-create-description" placeholder="Short description">
+                        <h4>Detected Appearance</h4>
+                        <div class="char-create-row">
+                            <input type="text" id="char-create-species" placeholder="Species">
+                            <input type="text" id="char-create-body-type" placeholder="Body type">
+                        </div>
+                        <div class="char-create-row">
+                            <input type="text" id="char-create-hair-colour" placeholder="Hair colour">
+                            <input type="text" id="char-create-hair-style" placeholder="Hair style">
+                        </div>
+                        <div class="char-create-row">
+                            <input type="text" id="char-create-eye-colour" placeholder="Eye colour">
+                            <input type="text" id="char-create-skin-tone" placeholder="Skin tone">
+                        </div>
+                        <input type="text" id="char-create-facial-features" placeholder="Facial features">
+                        <input type="text" id="char-create-outfit" placeholder="Outfit">
+                        <input type="text" id="char-create-accessories" placeholder="Accessories">
+                        <h4>Detected Art Style</h4>
+                        <input type="text" id="char-create-art-style" placeholder="Art style">
+                        <div class="char-create-row">
+                            <input type="text" id="char-create-line-style" placeholder="Line style">
+                            <input type="text" id="char-create-rendering" placeholder="Rendering">
+                        </div>
+                        <input type="text" id="char-create-genre" placeholder="Genre">
+                    </div>
+                    <div class="char-create-actions">
+                        <button id="btn-char-create-confirm" class="primary">Create Character</button>
+                        <button id="btn-char-create-cancel">Cancel</button>
+                    </div>
+                </div>
+                <div id="char-detail-content" hidden>
+                    <div class="section-header">
+                        <h3 id="character-detail-name">Character</h3>
+                        <div class="section-actions">
+                            <button id="btn-edit-character-detail" class="small-btn">Edit</button>
+                        </div>
+                    </div>
+
+                    <div id="character-detail-props">
+                        <!-- Appearance properties -->
+                    </div>
+
+                    <!-- Solo chapter panels -->
+                    <div id="solo-panels-section">
+                        <div class="section-header">
+                            <h4>Character Panels</h4>
+                            <div class="section-actions">
+                                <button id="btn-generate-solo" class="small-btn">Generate</button>
+                            </div>
+                        </div>
+                        <div id="solo-generate-area" hidden>
+                            <div class="solo-gen-fields">
+                                <input type="text" id="solo-prompt" placeholder="Action / scene description...">
+                                <div class="solo-gen-row">
+                                    <input type="text" id="solo-pose" placeholder="Pose (standing, sitting...)">
+                                    <input type="text" id="solo-emotion" placeholder="Emotion">
+                                </div>
+                                <div class="solo-gen-row">
+                                    <input type="text" id="solo-outfit" placeholder="Outfit">
+                                    <input type="text" id="solo-direction" placeholder="Direction (close-up, from below...)">
+                                </div>
+                                <div class="solo-gen-row">
+                                    <select id="solo-shot-type">
+                                        <option value="">Shot type...</option>
+                                        <option value="wide">Wide</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="close-up">Close-up</option>
+                                        <option value="extreme close-up">Extreme close-up</option>
+                                        <option value="over-shoulder">Over-shoulder</option>
+                                        <option value="bird's eye">Bird's eye</option>
+                                        <option value="low angle">Low angle</option>
+                                    </select>
+                                    <input type="number" id="solo-seed" placeholder="Seed (random)" min="0">
+                                </div>
+                                <textarea id="solo-negative" rows="2" placeholder="Negative prompt (optional)..."></textarea>
+                            </div>
+                            <button id="btn-solo-go">Generate</button>
+                        </div>
+                        <div id="solo-panels-grid">
+                            <!-- Solo chapter panels rendered here -->
+                        </div>
+                    </div>
+
+                    <!-- Reference bank -->
+                    <div id="reference-bank">
+                        <div class="section-header">
+                            <h4>Reference Bank</h4>
+                            <div class="section-actions">
+                                <label class="upload-btn">
+                                    Upload
+                                    <input type="file" id="reference-upload" accept="image/*" multiple hidden>
+                                </label>
+                                <label class="upload-btn">
+                                    Upload &amp; Analyze
+                                    <input type="file" id="reference-upload-analyze" accept="image/*" hidden>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="reference-grid">
+                            <!-- Reference images -->
+                        </div>
+                    </div>
+
+                    <!-- Analysis results (shown after analyzing an image) -->
+                    <div id="analysis-result" hidden>
+                        <div class="section-header">
+                            <h4>Analysis Results</h4>
+                            <button id="btn-close-analysis" class="small-btn">&times;</button>
+                        </div>
+                        <div id="analysis-caption" class="hint"></div>
+                        <div id="analysis-character-fields"></div>
+                        <div id="analysis-art-style-fields"></div>
+                        <button id="btn-apply-analysis">Apply to Character</button>
+                    </div>
+
+                    <!-- Reference editor (shown when a ref image is selected) -->
+                    <div id="reference-editor" hidden>
+                        <h4>Label Reference</h4>
+                        <p class="hint" style="font-size:0.65rem;margin-bottom:0.3rem">Labels help the adapter learn what this image shows</p>
+                        <img id="reference-preview" alt="Reference">
+                        <div class="reference-fields">
+                            <input type="text" id="ref-caption" placeholder="Caption (describe what's shown)">
+                            <div class="reference-field-row">
+                                <input type="text" id="ref-pose" placeholder="Pose">
+                                <input type="text" id="ref-expression" placeholder="Expression">
+                            </div>
+                            <div class="reference-field-row">
+                                <input type="text" id="ref-angle" placeholder="Angle">
+                                <input type="text" id="ref-scene" placeholder="Scene">
+                            </div>
+                            <input type="text" id="ref-outfit" placeholder="Outfit variant">
+                            <div class="reference-actions">
+                                <button id="btn-ref-accept" class="accept-btn">Accept</button>
+                                <button id="btn-ref-reject" class="reject-btn">Reject</button>
+                                <button id="btn-ref-save">Save Labels</button>
+                                <button id="btn-ref-delete" class="danger-btn">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Selected panel feedback -->
+                    <div id="solo-panel-feedback" hidden>
+                        <div class="section-header">
+                            <h4>Panel Feedback</h4>
+                        </div>
+                        <div class="feedback-row">
+                            <button id="btn-solo-thumbs-up" class="feedback-btn" title="Good">&#x1F44D;</button>
+                            <button id="btn-solo-thumbs-down" class="feedback-btn" title="Bad">&#x1F44E;</button>
+                            <button id="btn-solo-regenerate" class="small-btn">Regenerate</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="app" class="hidden">
         <!-- Header -->
         <header id="header">
             <h1>Comiventure</h1>
+            <span id="app-model-indicator" class="model-indicator"></span>
             <nav>
-                <button id="btn-new-story">New Story</button>
+                <button id="btn-regenerate-all">Regenerate</button>
                 <button id="btn-save">Save</button>
-                <button id="btn-load">Load</button>
+                <button id="btn-download">Download</button>
+                <button id="btn-back-to-chapters">Chapters</button>
             </nav>
         </header>
 
@@ -29,51 +305,208 @@
                 </div>
                 <div id="page-nav">
                     <button id="btn-prev-page" disabled>&larr; Prev</button>
-                    <span id="page-indicator">Page 1</span>
+                    <span id="page-indicator">Page 1 / 1</span>
                     <button id="btn-next-page" disabled>Next &rarr;</button>
+                    <span class="nav-separator"></span>
+                    <button id="btn-add-page">+ Page</button>
+                    <button id="btn-remove-page" disabled>&minus; Page</button>
+                    <span class="nav-separator"></span>
+                    <button id="btn-remove-panel" disabled>&minus; Panel</button>
+                    <span id="panel-count-indicator">0 panels</span>
+                    <button id="btn-add-panel" disabled>+ Panel</button>
                 </div>
             </section>
 
-            <!-- Chat / interaction panel -->
-            <aside id="chat-panel">
-                <div id="character-select">
-                    <!-- Character portraits rendered here -->
+            <!-- Context sidebar -->
+            <aside id="sidebar">
+                <!-- Chapter info -->
+                <div id="chapter-section" class="sidebar-section">
+                    <div class="section-header">
+                        <h3 id="chapter-title">Chapter 1</h3>
+                    </div>
+                    <div id="chapter-characters" class="character-list">
+                    </div>
+                    <button id="btn-manage-characters" class="small-btn">Manage Characters</button>
                 </div>
-                <div id="chat-history">
-                    <!-- Chat messages rendered here -->
+
+                <!-- Page context -->
+                <div id="page-context-section" class="sidebar-section">
+                    <details>
+                        <summary>Page Context</summary>
+                        <div class="context-fields">
+                            <input type="text" id="page-setting" placeholder="Setting (e.g. dimly lit tavern, forest)">
+                            <input type="text" id="page-mood" placeholder="Mood (e.g. tense, romantic, comedic)">
+                            <input type="text" id="page-action" placeholder="Action (e.g. combat, chase, argument)">
+                            <input type="text" id="page-time-of-day" placeholder="Time of day (e.g. dawn, noon, dusk, night)">
+                            <input type="text" id="page-weather" placeholder="Weather (e.g. rain, snow, fog, clear)">
+                            <input type="text" id="page-lighting" placeholder="Lighting (e.g. firelight, neon, moonlight)">
+                        </div>
+                    </details>
                 </div>
-                <div id="chat-input-area">
-                    <textarea id="chat-input" placeholder="Say something..." rows="2"></textarea>
-                    <button id="btn-send">Send</button>
+
+                <!-- Panel context — shown when a panel is selected -->
+                <div id="panel-section" class="sidebar-section" hidden>
+                    <!-- Panel actions -->
+                    <div class="section-header">
+                        <h3>Panel</h3>
+                        <div class="section-actions">
+                            <button id="btn-edit-panel">Edit</button>
+                            <button id="btn-generate-panel" disabled>Generate</button>
+                            <button id="btn-save-to-bank" disabled title="Save to bank">Bank</button>
+                        </div>
+                    </div>
+
+                    <!-- Panel properties -->
+                    <div class="context-fields panel-fields">
+                        <select id="panel-shot-type">
+                            <option value="">Shot type...</option>
+                            <option value="wide">Wide shot</option>
+                            <option value="medium">Medium shot</option>
+                            <option value="close-up">Close-up</option>
+                            <option value="extreme close-up">Extreme close-up</option>
+                            <option value="over-shoulder">Over-shoulder</option>
+                            <option value="bird's eye">Bird's eye</option>
+                            <option value="low angle">Low angle</option>
+                            <option value="dutch angle">Dutch angle</option>
+                        </select>
+                        <input type="text" id="panel-narration" placeholder="Narration / caption text...">
+                    </div>
+
+                    <!-- Scripts -->
+                    <details open class="sidebar-collapse">
+                        <summary>Scripts</summary>
+                        <div id="panel-scripts"></div>
+                        <div id="add-script-area">
+                            <select id="script-character-select">
+                                <option value="">Add character to panel...</option>
+                            </select>
+                        </div>
+                    </details>
+
+                    <!-- Feedback & Review -->
+                    <details class="sidebar-collapse" id="panel-feedback" hidden>
+                        <summary>Feedback & Review</summary>
+                        <div class="feedback-row">
+                            <button id="btn-thumbs-up" class="feedback-btn" title="Good">&#x1F44D;</button>
+                            <button id="btn-thumbs-down" class="feedback-btn" title="Bad">&#x1F44E;</button>
+                            <button id="btn-review" class="small-btn">Review</button>
+                            <span id="feedback-count" class="feedback-count"></span>
+                        </div>
+                        <div id="review-result" hidden>
+                            <div class="review-score"></div>
+                            <div class="review-caption"></div>
+                            <div class="review-differences"></div>
+                            <div class="review-suggestion"></div>
+                            <button id="btn-apply-review" class="small-btn" hidden>Apply Suggestions</button>
+                        </div>
+                    </details>
+
+                    <!-- Generation settings -->
+                    <details class="sidebar-collapse">
+                        <summary>Generation Settings</summary>
+                        <div class="negative-prompt-section">
+                            <textarea id="negative-prompt" rows="2" placeholder="Negative prompt..."></textarea>
+                        </div>
+                        <div class="feedback-row">
+                            <button id="btn-train-adapter" class="small-btn" disabled>Train</button>
+                            <label class="feedback-label">Rank:
+                                <select id="adapter-rank" class="small-select">
+                                    <option value="2">2</option>
+                                    <option value="4" selected>4</option>
+                                    <option value="8">8</option>
+                                    <option value="16">16</option>
+                                    <option value="32">32</option>
+                                </select>
+                            </label>
+                            <label class="feedback-label">Epochs:
+                                <select id="adapter-epochs" class="small-select">
+                                    <option value="50">50</option>
+                                    <option value="100" selected>100</option>
+                                    <option value="250">250</option>
+                                    <option value="500">500</option>
+                                    <option value="1000">1000</option>
+                                </select>
+                            </label>
+                        </div>
+                    </details>
                 </div>
-                <div id="choice-area" hidden>
-                    <!-- Dialogue choices rendered here -->
+
+                <!-- Script chat — helps write scripts for the selected panel -->
+                <div id="chat-section" class="sidebar-section sidebar-fill" hidden>
+                    <div class="section-header">
+                        <h3>Script Chat</h3>
+                    </div>
+                    <div id="chat-history">
+                        <!-- Chat messages rendered here -->
+                    </div>
+                    <div id="chat-input-area">
+                        <select id="chat-character-select">
+                            <option value="narrator">Narrator</option>
+                        </select>
+                        <div id="chat-actions-row">
+                            <button id="btn-suggest-scripts" class="small-btn" title="LLM suggests scripts based on context">Suggest</button>
+                            <button id="btn-react" class="small-btn" title="Character reacts to the panel">React</button>
+                        </div>
+                        <div id="chat-input-row">
+                            <textarea id="chat-input" placeholder="Talk to the character about the scene..." rows="2"></textarea>
+                            <button id="btn-send">Send</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- No panel selected message -->
+                <div id="no-panel-message" class="sidebar-section">
+                    <p class="hint">Select a panel to add character scripts</p>
                 </div>
             </aside>
         </main>
 
-        <!-- Edit overlay (shown when editing a panel) -->
-        <div id="edit-overlay" hidden>
-            <div id="edit-container">
-                <canvas id="edit-canvas"></canvas>
-                <div id="edit-controls">
-                    <label>Edit prompt:
-                        <input type="text" id="edit-prompt" placeholder="e.g. change the cat to a dog">
+        <!-- Character manager overlay (kept for add/edit forms) -->
+        <div id="character-manager-overlay">
+            <div id="character-manager">
+                <h3>Characters</h3>
+                <div id="character-list-full">
+                    <!-- Full character list with edit/delete -->
+                </div>
+                <div id="add-character-form">
+                    <input type="text" id="new-char-name" placeholder="Name">
+                    <input type="text" id="new-char-appearance" placeholder="Appearance (for image gen)">
+                    <input type="text" id="new-char-personality" placeholder="Personality">
+                    <input type="text" id="new-char-description" placeholder="Description">
+                    <label class="checkbox-row">
+                        <input type="checkbox" id="new-char-temporary">
+                        Temporary (page-scoped extra)
                     </label>
-                    <div id="edit-tools">
-                        <button id="btn-brush" class="active">Brush</button>
-                        <button id="btn-eraser">Eraser</button>
-                        <label>Size: <input type="range" id="brush-size" min="5" max="80" value="20"></label>
+                    <button id="btn-create-character">Add</button>
+                </div>
+                <div id="edit-character-form" hidden>
+                    <h4>Edit Character</h4>
+                    <input type="text" id="edit-char-name" placeholder="Name">
+                    <input type="text" id="edit-char-appearance" placeholder="Appearance">
+                    <input type="text" id="edit-char-personality" placeholder="Personality">
+                    <input type="text" id="edit-char-description" placeholder="Description">
+                    <label class="checkbox-row">
+                        <input type="checkbox" id="edit-char-temporary">
+                        Temporary (page-scoped extra)
+                    </label>
+                    <div class="form-actions">
+                        <button id="btn-save-character-edit">Save</button>
+                        <button id="btn-cancel-character-edit">Cancel</button>
                     </div>
-                    <div id="edit-actions">
-                        <button id="btn-apply-edit">Apply Edit</button>
-                        <button id="btn-cancel-edit">Cancel</button>
-                    </div>
+                </div>
+                <div id="character-manager-actions">
+                    <label class="upload-btn">
+                        Import from .cvn
+                        <input type="file" id="import-character-file" accept=".cvn" hidden>
+                    </label>
+                    <button id="btn-close-characters">Close</button>
                 </div>
             </div>
         </div>
 
-        <!-- Generation progress indicator -->
+        <!-- Edit overlay removed — editor is now inline on the panel -->
+
+        <!-- Generation progress -->
         <div id="progress-bar" hidden>
             <div id="progress-fill"></div>
             <span id="progress-text">Generating...</span>
@@ -82,7 +515,6 @@
 
     <script src="/static/js/api.js"></script>
     <script src="/static/js/comic.js"></script>
-    <script src="/static/js/chat.js"></script>
     <script src="/static/js/editor.js"></script>
     <script src="/static/js/app.js"></script>
 </body>

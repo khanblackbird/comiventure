@@ -1,166 +1,187 @@
 # Comiventure
 
-An interactive comic book adventure game powered by local AI models. Players chat with characters in a visual novel / dating sim style interface, and the AI generates both the narrative and comic book panels in real-time.
+Interactive comic book adventure engine powered by local AI models. Create characters, compose scenes, and generate comic panels — all running on your own hardware.
 
-## Concept
+## What It Does
 
-- Players interact with characters through dialogue choices and free-text chat
-- An LLM drives character personalities, story branching, and narrative progression
-- An image generation model creates comic panels for each scene
-- Panels can be animated using video generation models
-- Players can edit generated content — mask a region and prompt the AI to change it (e.g. swap a character, change colours, alter the scene)
-- Pages are laid out in comic book format with panels, speech bubbles, and narration boxes
-- Entirely local — no API calls, no cloud dependencies
+- **Comic creation**: Story → Character → Chapter → Page → Panel → Script hierarchy
+- **AI image generation**: SDXL models (5 built-in: anime, pony, furry, animagine, autismmix)
+- **Character chat**: Talk to characters in-character via Llama 3 8B
+- **Adversarial training**: User feedback (thumbs up/down) trains a LoRA adapter for style consistency
+- **IP-Adapter**: Character reference images condition generation for visual consistency
+- **Image analysis**: Upload character art, LLaVA extracts appearance/art style automatically
+- **Review loop**: LLaVA reverse-captions generated images, compares to prompts, suggests improvements
+- **Save/load**: Stories saved as .cvn files (ZIP archives with JSON + assets)
 
 ## Architecture
 
-**Strictly OO Python backend** serving a **web frontend** via FastAPI.
-
 ```
-+-------------------------------------------------------------------+
-|                        Web Frontend                                |
-|  HTML5 Canvas/WebGL + CSS Grid + vanilla JS                       |
-|                                                                    |
-|  - Comic page layout (CSS Grid panels)                            |
-|  - Speech bubbles and narration boxes                              |
-|  - Chat input / dialogue choices                                   |
-|  - Animated panels (HTML5 video in-line)                           |
-|  - Mask drawing tool (canvas) for AI edits                         |
-|  - Region select + colour/style transforms (WebGL shaders)         |
-|  - Page history, save/load                                         |
-+-------------------------------------------------------------------+
-        |  WebSocket / HTTP
-        v
-+-------------------------------------------------------------------+
-|                     Python Backend (FastAPI)                        |
-|                                                                    |
-|  +------------------+    +-------------------+                     |
-|  |   StoryEngine    |    |   EditEngine      |                     |
-|  |  - CharacterAI   |    |  - Inpainting     |  mask + prompt      |
-|  |  - SceneManager  |    |    (image/video)   |  -> edited asset   |
-|  |  - DialogueTree  |    |  - ColourTransform |                     |
-|  |  - BranchManager |    |  - RegionSwap      |                     |
-|  +------------------+    +-------------------+                     |
-|           |                       |                                |
-|           v                       v                                |
-|  +------------------+    +-------------------+                     |
-|  |  PanelGenerator  |    |   ComfyUI Bridge  |  <- shared         |
-|  |  - SceneRender   |    |  - ImageGen       |                     |
-|  |  - CharacterGen  |    |  - VideoGen       |                     |
-|  |  - BackgroundGen |    |  - Inpaint        |                     |
-|  +------------------+    +-------------------+                     |
-|           |                                                        |
-|           v                                                        |
-|  +------------------+                                              |
-|  |  ComicComposer   |                                              |
-|  |  - PageLayout    |                                              |
-|  |  - BubblePlacer  |                                              |
-|  |  - PanelArranger |                                              |
-|  +------------------+                                              |
-+-------------------------------------------------------------------+
-        |                       |
-        v                       v
-+----------------+    +-------------------+
-|    ollama      |    |     ComfyUI       |
-|  (LLM server)  |    |  (image/video)    |
-|  localhost:11434|    |  localhost:8188   |
-+----------------+    +-------------------+
+Story (art_style, genre)
+  └─ Character (appearance, profile, reference bank)
+       └─ Chapter (location, time_of_day, synopsis)
+            └─ Page (setting, mood, weather, lighting, action_context)
+                 └─ Panel (shot_type, narration, image_hash)
+                      └─ Script (dialogue, action, emotion, pose, outfit, direction)
 ```
 
-## Tech Stack
-
-| Component | Tool | Notes |
-|-----------|------|-------|
-| Backend | Python + FastAPI | OO architecture, serves API to frontend |
-| LLM | ollama (Llama 3 8B or similar) | Character dialogue, story generation, scene descriptions |
-| Image Gen | ComfyUI + Flux/SDXL | Panel art, character portraits, backgrounds |
-| Image Editing | ComfyUI inpainting | Mask + prompt to edit regions of generated images |
-| Video/Animation | AnimateDiff (via ComfyUI) | Animated panels, motion from static images |
-| Video Editing | ProPainter / AnimateDiff inpainting | Mask + prompt to edit regions across video frames |
-| Frontend | HTML5 Canvas/WebGL + CSS Grid | Comic layout, mask drawing, animated panels, shader effects |
-| Communication | WebSocket + REST | Real-time updates for generation progress |
-
-## AI Editing Capabilities
-
-Players can interactively edit generated content:
-
-- **Inpainting** — draw a mask over a region, describe what to change ("make the cat a dog", "change shirt to orange"), AI regenerates just that area
-- **Image inpainting** — single panel edits via Flux/SDXL inpainting pipeline
-- **Video inpainting** — edit regions across animated panel frames with temporal consistency
-- **Style transfer** — apply colour/style changes to selected regions via WebGL shaders (instant) or AI re-generation (higher quality)
-
-Workflow: user draws mask in browser canvas -> frontend sends mask + prompt to backend -> ComfyUI processes the edit -> backend returns updated asset -> frontend displays it.
-
-## Hardware Requirements
-
-Developed on:
-- NVIDIA RTX 4060 Mobile (8GB VRAM)
-- Intel i7-13620H
-- 16GB RAM
-- Arch Linux
-
-Minimum: Any NVIDIA GPU with 8GB VRAM and CUDA support.
-
-8GB VRAM supports:
-- LLM inference (7-8B parameter models)
-- Image generation (Flux/SDXL)
-- Image inpainting
-- Short video clips (AnimateDiff, 2-4 sec)
-
-Larger VRAM (12-24GB) unlocks:
-- Bigger LLMs (13B+) for richer dialogue
-- Higher resolution video generation
-- Faster batch generation of multiple panels
-
-## Design Principles
-
-- **Fully offline** — all models run locally, no API keys needed
-- **Strictly OO** — clean class hierarchies, domain objects, separation of concerns
-- **Model-agnostic** — swap in bigger/better models later without code changes
-- **Modular** — each component (story, image, edit, layout, UI) is independent
-- **Lightweight first** — start with small models, scale up when hardware allows
-- **Web frontend** — no game engine overhead, HTML/CSS/Canvas handles layout, animation, and editing
-
-## Project Structure
+Every object has a standard `to_prompt()` method. The prompt composer chains them:
 
 ```
-comiventure/
-  backend/
-    engine/          # StoryEngine, CharacterAI, SceneManager, BranchManager
-    generator/       # PanelGenerator, ComfyUI bridge, image/video pipelines
-    editor/          # EditEngine, inpainting, region transforms
-    composer/        # ComicComposer, PageLayout, BubblePlacer
-    models/          # Domain objects: Character, Scene, Panel, Page, Story
-    api/             # FastAPI routes and WebSocket handlers
-    app.py           # Application entry point
-  frontend/
-    index.html       # Main page
-    css/             # Comic layout styles, panel grids, bubble styles
-    js/              # Canvas mask tool, WebGL shaders, chat UI, panel viewer
-    assets/          # Static assets (fonts, UI elements)
-  tests/
-  requirements.txt
-  README.md
+Story.to_prompt()      → "cinematic lighting, hyper-detailed textures"
+Panel.to_prompt()      → "close-up shot"
+Character.to_prompt()  → "blue-haired girl, slim, blue eyes"
+  + Script.to_prompt() → "standing, waves (wary) wearing armor [close-up]"
+Page.to_prompt()       → "enchanted forest, dusk, rain, moonlight lighting, tense atmosphere"
 ```
 
-## Status
+### AI Pipeline
 
-Early development. Setting up the local AI stack.
+```
+User edits scripts/context
+        ↓
+PromptComposer (LLM or direct fallback)
+        ↓
+ImageGenerator (SDXL + CPU offload)
+  ├── Latent capture (visual + language)
+  ├── IP-Adapter conditioning (reference images)
+  └── LoRA weights (from adversarial adapter)
+        ↓
+ContentStore (SHA-256 content-addressable)
+        ↓
+User feedback (thumbs up/down)
+        ↓
+AdversarialAdapter training (visual + language + review losses)
+        ↓
+LoraBridge → load_lora_weights() into pipeline
+```
+
+### Backend
+
+| Module | Purpose |
+|--------|---------|
+| `backend/models/` | Domain objects (Story, Character, Chapter, Page, Panel, Script) with emission, dirty-flag caching, context inheritance |
+| `backend/generator/` | Image generation (SDXL), prompt composition (LLM), adversarial adapter, LoRA bridge, IP-Adapter, image analysis, review |
+| `backend/api/routes.py` | FastAPI REST endpoints for all CRUD, generation, feedback, training, model switching |
+| `backend/composer/` | Comic page layout computation (CSS grid templates) |
+| `backend/models/storage.py` | Save/load .cvn files (ZIP with JSON + content-addressed assets) |
+
+### Frontend
+
+| File | Purpose |
+|------|---------|
+| `frontend/index.html` | All screens: splash, chapter select, character screen, comic editor |
+| `frontend/js/app.js` | Main application logic, screen navigation, UI wiring |
+| `frontend/js/api.js` | API client |
+| `frontend/js/comic.js` | Comic panel renderer (CSS grid, speech bubbles, selection) |
+| `frontend/js/editor.js` | Inline mask editor for inpainting |
+
+### Screens
+
+1. **Splash** → New Story / Load File / Saved Stories
+2. **Chapter Select** → Story settings (art style, genre), chapter cards (location, time, synopsis), model selector, adapter training
+3. **Character Screen** → Character list, appearance editor, solo chapter panels, reference bank, upload & analyze
+4. **Comic Editor** → Page viewer, panel selection, script editing, generation, feedback, review, chat
 
 ## Getting Started
 
-### 1. Install ollama
+### Docker (recommended)
+
 ```bash
-sudo pacman -S ollama
+docker compose up --build
 ```
 
-### 2. Pull a model
+Requires NVIDIA GPU with Docker GPU support. The compose file runs the app + ollama containers sharing the GPU.
+
+### Manual Setup
+
 ```bash
+# Python environment
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Ollama (for LLM + LLaVA)
+# Install ollama, then:
 ollama pull llama3:8b
+ollama pull llava:7b
+
+# Run
+uvicorn backend.app:app --host 0.0.0.0 --port 8000
 ```
 
-### 3. Install ComfyUI
-TBD
+Open `http://localhost:8000` in your browser.
 
-### 4. Run Comiventure
-TBD
+### First Use
+
+1. Click "New Story" on the splash screen
+2. Go to Characters → "New from Image" to upload character art
+3. LLaVA analyzes the image and auto-fills appearance + art style
+4. Create chapters, add pages, fill in scripts
+5. Generate panels — the AI composes prompts from your hierarchy
+
+## Image Models
+
+| Key | Model | Style |
+|-----|-------|-------|
+| `anime` | Lykon/AAM_XL_AnimeMix | Clean anime illustration |
+| `pony` | CitronLegacy/ponyDiffusionV6XL | Anime + furry/anthro (Danbooru, e621) |
+| `animagine` | cagliostrolab/animagine-xl-3.1 | High quality anime |
+| `furry` | John6666/nova-furry-xl-il-v120-sdxl | Furry/anthro specialist |
+| `autismmix` | John6666/autismmix-sdxl-autismmix-pony-sdxl | Anime + furry blend |
+
+Models download on first use. Switch models from the chapter select screen.
+
+## Default Prompts
+
+**Style** (prepended to all prompts): `cinematic lighting, hyper-detailed textures`
+
+**Negative** (default for all generation):
+```
+lowres, (worst quality, bad quality:1.2), bad anatomy, sketch, jpeg artefacts,
+signature, watermark, old, oldest, censored, bar_censor, simple background
+```
+
+Both are overridable — art style via Story settings, negative prompt per panel.
+
+## Training
+
+The adversarial adapter learns from user feedback:
+
+1. Generate a panel → rate it (thumbs up/down)
+2. LLaVA reviews it → captures latent embeddings
+3. Train adapter (configurable rank + epochs)
+4. Trained weights convert to LoRA via LoraBridge
+5. Next generation uses the adapted model
+
+Training parameters (rank, epochs) are adjustable from the chapter select screen.
+
+## Hardware
+
+Developed on NVIDIA RTX 4060 Mobile (8GB VRAM). Uses sequential CPU offload for SDXL models.
+
+- **Minimum**: 8GB VRAM NVIDIA GPU with CUDA
+- **Recommended**: 12GB+ VRAM for faster generation
+
+## Testing
+
+```bash
+.venv/bin/python -m pytest tests/ -v
+```
+
+Test coverage:
+- Model hierarchy (creation, traversal, context, validation)
+- Content store (SHA-256, CRUD, round-trip)
+- Storage (save/load .cvn with all fields)
+- Image generation (prompt composition, latent capture, pipeline integrity)
+- Adversarial training (adapter, unified trainer, LoRA bridge)
+- IP-Adapter (reference collection, pipeline loading)
+- Appearance and profile (structured properties, reference bank)
+- Prompt composition (to_prompt chain, character filtering, defaults)
+- API hierarchy enforcement and integrity
+- End-to-end workflows
+
+## File Format
+
+Stories are saved as `.cvn` files — ZIP archives containing:
+- `story.json` — full hierarchy serialized
+- `content/` — all images/assets by SHA-256 hash

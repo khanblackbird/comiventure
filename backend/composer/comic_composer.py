@@ -41,14 +41,24 @@ class ComicComposer:
         }
 
     def _panel_layout(self, panel: Panel) -> dict:
-        """Build layout data for a single panel including bubble positions."""
+        """Build layout data for a single panel."""
+        # Collect dialogue from scripts for speech bubbles
+        dialogues = []
+        for character_id, script in panel.scripts.items():
+            if script.dialogue:
+                dialogues.append({
+                    "character_id": character_id,
+                    "text": script.dialogue,
+                })
+
         return {
             "panel_id": panel.panel_id,
-            "image_path": panel.image_path,
-            "video_path": panel.video_path,
+            "image_hash": panel.image_hash,
+            "video_hash": panel.video_hash,
             "is_animated": panel.is_animated,
-            "dialogue": panel.dialogue,
+            "dialogues": dialogues,
             "narration": panel.narration,
+            "shot_type": panel.shot_type,
         }
 
     def _auto_layout(self, panel_count: int) -> str:

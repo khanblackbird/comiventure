@@ -5,9 +5,16 @@ __pycache__/
 dist/
 build/
 .env
-models/
+/models/
 outputs/
 *.png
 *.jpg
 !assets/**/*.png
 !assets/**/*.jpg
+.coverage
+.pytest_cache/
+data/
+backend/test_*.py
+backend/check_*.py
+backend/download_*.py
+backend/generate_test.py
