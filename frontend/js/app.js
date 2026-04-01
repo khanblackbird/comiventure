@@ -330,7 +330,7 @@ class ComiventureApp {
                 container.appendChild(card);
             }
         } catch (error) {
-            container.innerHTML = '<span class="hint">Search failed</span>';
+            container.innerHTML = `<span class="hint">Search failed: ${error.message}</span>`;
             console.error('Civitai search failed:', error);
         }
     }

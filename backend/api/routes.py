@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 
+import httpx
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -469,6 +470,28 @@ async def remove_style_reference(content_hash: str):
 
 # --- Civitai LoRA Browser ---
 
+def _civitai_proxy() -> str:
+    """Get proxy URL for civitai requests.
+    Set CIVITAI_PROXY or HTTPS_PROXY env var to route through a proxy.
+    """
+    import os
+    return (
+        os.environ.get("CIVITAI_PROXY")
+        or os.environ.get("HTTPS_PROXY")
+        or os.environ.get("https_proxy")
+        or ""
+    )
+
+
+def _civitai_client() -> httpx.AsyncClient:
+    """Build an httpx client with proxy if configured."""
+    proxy = _civitai_proxy()
+    kwargs = {"follow_redirects": True}
+    if proxy:
+        kwargs["proxy"] = proxy
+    return httpx.AsyncClient(**kwargs)
+
+
 @router.get("/api/civitai/search")
 async def civitai_search(
     query: str = "",
@@ -495,14 +518,15 @@ async def civitai_search(
         params["tag"] = tag
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with _civitai_client() as client:
             response = await client.get(
                 "https://civitai.com/api/v1/models",
                 params=params,
-                timeout=15.0,
+                timeout=30.0,
             )
             if response.status_code != 200:
-                raise HTTPException(502, f"Civitai returned {response.status_code}")
+                detail = response.text[:200] if response.text else str(response.status_code)
+                raise HTTPException(502, f"Civitai returned {response.status_code}: {detail}")
 
             data = response.json()
             results = []
@@ -576,8 +600,6 @@ async def civitai_download(request: dict):
     if not filename.endswith(".safetensors"):
         filename += ".safetensors"
 
-    import httpx
-
     lora_path = LORA_DIR / filename
     if lora_path.exists():
         return {
@@ -588,7 +610,7 @@ async def civitai_download(request: dict):
         }
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
+        async with _civitai_client() as client:
             response = await client.get(download_url, timeout=120.0)
             if response.status_code != 200:
                 raise HTTPException(
