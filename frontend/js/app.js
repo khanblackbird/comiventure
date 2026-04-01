@@ -82,6 +82,8 @@ class ComiventureApp {
         this._renderModelSelector();
         this._renderAdapterStatus();
         this._loadStorySettings();
+        this._renderLoraSection();
+        this._renderStyleReferences();
     }
 
     _updateModelIndicators(modelName) {
@@ -166,6 +168,224 @@ class ComiventureApp {
         } catch (error) {
             statusEl.textContent = 'Failed';
             console.error('Failed to switch model:', error);
+        }
+    }
+
+    // --- LoRA Library ---
+
+    async _renderLoraSection() {
+        const container = document.getElementById('lora-active-list');
+        container.innerHTML = '';
+
+        try {
+            const data = await api._get('/api/loras');
+            const library = data.loras || [];
+            const activeLoras = this.storyData?.style_loras || [];
+
+            if (library.length === 0 && activeLoras.length === 0) {
+                container.innerHTML = '<span class="hint">No LoRAs — upload or browse Civitai</span>';
+                return;
+            }
+
+            // Show available LoRAs with toggle + strength
+            for (const lora of library) {
+                const active = activeLoras.find(l => l.name === lora.name);
+                const row = document.createElement('div');
+                row.className = 'lora-row';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = !!active;
+                row.appendChild(checkbox);
+
+                const name = document.createElement('span');
+                name.className = 'lora-name';
+                name.textContent = `${lora.name} (${lora.size_mb}MB)`;
+                row.appendChild(name);
+
+                const slider = document.createElement('input');
+                slider.type = 'range';
+                slider.min = '0';
+                slider.max = '100';
+                slider.value = active ? Math.round(active.strength * 100) : 70;
+                slider.className = 'lora-strength';
+                row.appendChild(slider);
+
+                const label = document.createElement('span');
+                label.className = 'lora-strength-label';
+                label.textContent = `${slider.value}%`;
+                slider.addEventListener('input', () => {
+                    label.textContent = `${slider.value}%`;
+                });
+                row.appendChild(label);
+
+                const save = () => this._saveActiveLoras();
+                checkbox.addEventListener('change', save);
+                slider.addEventListener('change', save);
+
+                row.dataset.loraName = lora.name;
+                row.dataset.loraFilename = lora.filename;
+                container.appendChild(row);
+            }
+        } catch (error) {
+            container.innerHTML = '<span class="hint">Could not load LoRAs</span>';
+        }
+    }
+
+    async _saveActiveLoras() {
+        const rows = document.querySelectorAll('.lora-row');
+        const loras = [];
+        for (const row of rows) {
+            const checkbox = row.querySelector('input[type="checkbox"]');
+            const slider = row.querySelector('input[type="range"]');
+            if (checkbox.checked) {
+                loras.push({
+                    name: row.dataset.loraName,
+                    filename: row.dataset.loraFilename,
+                    strength: parseInt(slider.value, 10) / 100,
+                });
+            }
+        }
+        try {
+            await api._post('/api/story/loras', { loras });
+            if (this.storyData) this.storyData.style_loras = loras;
+        } catch (error) {
+            console.error('Failed to save LoRA selection:', error);
+        }
+    }
+
+    async _uploadLora(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            await fetch('/api/loras/upload', { method: 'POST', body: formData });
+            this._renderLoraSection();
+        } catch (error) {
+            console.error('LoRA upload failed:', error);
+        }
+    }
+
+    async _searchCivitai() {
+        const query = document.getElementById('civitai-search').value.trim();
+        if (!query) return;
+
+        const container = document.getElementById('civitai-results');
+        container.innerHTML = '<span class="hint">Searching...</span>';
+
+        try {
+            const data = await api._get(`/api/civitai/search?query=${encodeURIComponent(query)}`);
+            container.innerHTML = '';
+
+            if (!data.results || data.results.length === 0) {
+                container.innerHTML = '<span class="hint">No results</span>';
+                return;
+            }
+
+            for (const result of data.results) {
+                const card = document.createElement('div');
+                card.className = 'civitai-card';
+
+                if (result.preview_url) {
+                    const img = document.createElement('img');
+                    img.src = result.preview_url;
+                    img.alt = result.name;
+                    img.className = 'civitai-preview';
+                    card.appendChild(img);
+                }
+
+                const info = document.createElement('div');
+                info.className = 'civitai-info';
+
+                const name = document.createElement('div');
+                name.className = 'civitai-name';
+                name.textContent = result.name;
+                info.appendChild(name);
+
+                const meta = document.createElement('div');
+                meta.className = 'civitai-meta';
+                meta.textContent = `${result.size_mb}MB · ${result.downloads} downloads`;
+                info.appendChild(meta);
+
+                const dlBtn = document.createElement('button');
+                dlBtn.className = 'small-btn';
+                dlBtn.textContent = 'Download';
+                dlBtn.addEventListener('click', async () => {
+                    dlBtn.disabled = true;
+                    dlBtn.textContent = 'Downloading...';
+                    try {
+                        await api._post('/api/civitai/download', {
+                            download_url: result.download_url,
+                            filename: result.filename,
+                        });
+                        dlBtn.textContent = 'Downloaded';
+                        this._renderLoraSection();
+                    } catch (e) {
+                        dlBtn.textContent = 'Failed';
+                        console.error('Download failed:', e);
+                    }
+                });
+                info.appendChild(dlBtn);
+
+                card.appendChild(info);
+                container.appendChild(card);
+            }
+        } catch (error) {
+            container.innerHTML = '<span class="hint">Search failed</span>';
+            console.error('Civitai search failed:', error);
+        }
+    }
+
+    // --- Style References ---
+
+    async _renderStyleReferences() {
+        const grid = document.getElementById('style-ref-grid');
+        if (!grid) return;
+        grid.innerHTML = '';
+
+        const refs = this.storyData?.style_references || [];
+        if (refs.length === 0) {
+            grid.innerHTML = '<span class="hint">No style references yet</span>';
+            return;
+        }
+
+        for (const hash of refs) {
+            const thumb = document.createElement('div');
+            thumb.className = 'style-ref-thumb';
+
+            const img = document.createElement('img');
+            img.src = api.contentUrl(hash);
+            thumb.appendChild(img);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'style-ref-remove';
+            removeBtn.textContent = '\u00d7';
+            removeBtn.addEventListener('click', async () => {
+                await api._delete(`/api/story/style-references/${hash}`);
+                this.storyData.style_references = this.storyData.style_references.filter(h => h !== hash);
+                this._renderStyleReferences();
+            });
+            thumb.appendChild(removeBtn);
+
+            grid.appendChild(thumb);
+        }
+    }
+
+    async _uploadStyleReference(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const result = await fetch('/api/story/style-references/upload', {
+                method: 'POST', body: formData,
+            }).then(r => r.json());
+            if (this.storyData) {
+                if (!this.storyData.style_references) this.storyData.style_references = [];
+                if (!this.storyData.style_references.includes(result.content_hash)) {
+                    this.storyData.style_references.push(result.content_hash);
+                }
+            }
+            this._renderStyleReferences();
+        } catch (error) {
+            console.error('Style reference upload failed:', error);
         }
     }
 
@@ -354,6 +574,26 @@ class ComiventureApp {
         document.getElementById('btn-add-chapter-select').addEventListener('click', () => this._addChapterFromSelect());
         document.getElementById('btn-chapter-manage-chars').addEventListener('click', () => this._showCharacterScreen());
         document.getElementById('btn-train-adapter-chapter').addEventListener('click', () => this._trainAdapterFromChapterSelect());
+
+        // LoRA library
+        document.getElementById('lora-upload').addEventListener('change', async (event) => {
+            if (event.target.files[0]) await this._uploadLora(event.target.files[0]);
+            event.target.value = '';
+        });
+        document.getElementById('btn-browse-civitai').addEventListener('click', () => {
+            const browser = document.getElementById('civitai-browser');
+            browser.hidden = !browser.hidden;
+        });
+        document.getElementById('btn-civitai-search').addEventListener('click', () => this._searchCivitai());
+        document.getElementById('civitai-search').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this._searchCivitai();
+        });
+
+        // Style references
+        document.getElementById('style-ref-upload').addEventListener('change', async (event) => {
+            if (event.target.files[0]) await this._uploadStyleReference(event.target.files[0]);
+            event.target.value = '';
+        });
 
         // Panel remove
         document.getElementById('btn-remove-panel').addEventListener('click', () => this._removePanel());

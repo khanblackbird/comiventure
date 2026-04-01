@@ -91,18 +91,39 @@ class IPAdapterBridge:
 
         return images
 
+    def collect_style_references(
+        self,
+        style_hashes: list[str],
+    ) -> list[Image.Image]:
+        """Collect story-level style reference images.
+        These condition every generation toward the story's visual style.
+        """
+        images = []
+        for content_hash in style_hashes:
+            image_bytes = self.content_store.retrieve(content_hash)
+            if image_bytes:
+                pil_image = Image.open(BytesIO(image_bytes)).convert("RGB")
+                images.append(pil_image)
+        return images
+
     def prepare_generation_kwargs(
         self,
         characters: list[Character],
         panel: Panel,
         pipeline,
+        style_references: list[str] = None,
     ) -> dict:
         """Prepare IP-Adapter kwargs for the pipeline call.
 
+        Combines character reference images + story style references.
         Returns a dict with ip_adapter_image if references exist,
         or an empty dict if there are no references (don't pollute kwargs).
         """
         images = self.collect_reference_images(characters, panel)
+
+        # Add story-level style references
+        if style_references:
+            images.extend(self.collect_style_references(style_references))
 
         if not images:
             return {}

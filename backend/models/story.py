@@ -38,6 +38,8 @@ class Story(Emitter):
         self.art_style = art_style      # "manga", "western comic", "watercolor"
         self.genre = genre              # "fantasy", "sci-fi", "slice of life"
         self.negative_prompt = negative_prompt  # global negative (always applied)
+        self.style_loras: list[dict] = []       # [{"content_hash": ..., "name": ..., "strength": 0.7}]
+        self.style_references: list[str] = []   # content hashes for IP-Adapter style conditioning
         self.characters: dict[str, Character] = {}
         self.chapters: dict[str, Chapter] = {}
 
@@ -361,6 +363,8 @@ class Story(Emitter):
             "art_style": self.art_style,
             "genre": self.genre,
             "negative_prompt": self.negative_prompt,
+            "style_loras": self.style_loras,
+            "style_references": self.style_references,
             "characters": {
                 character_id: character.to_dict()
                 for character_id, character in self.characters.items()

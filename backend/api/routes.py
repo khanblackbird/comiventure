@@ -335,6 +335,294 @@ async def import_character(file: UploadFile = File(...)):
     return {"imported": imported, "count": len(imported)}
 
 
+# --- LoRA Library ---
+
+LORA_DIR = Path("data/loras")
+LORA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@router.get("/api/loras")
+async def list_loras():
+    """List all LoRA files in the local library."""
+    loras = []
+    for path in LORA_DIR.glob("*.safetensors"):
+        loras.append({
+            "filename": path.name,
+            "name": path.stem,
+            "size_mb": round(path.stat().st_size / (1024 * 1024), 1),
+        })
+    # Also include any LoRAs stored in content store (from .cvn loads)
+    if story:
+        for lora in story.style_loras:
+            if not any(l["name"] == lora.get("name") for l in loras):
+                loras.append(lora)
+    return {"loras": loras}
+
+
+@router.post("/api/loras/upload")
+async def upload_lora(file: UploadFile = File(...)):
+    """Upload a .safetensors LoRA file to the local library."""
+    if not file.filename or not file.filename.endswith(".safetensors"):
+        raise HTTPException(400, "File must be a .safetensors file")
+
+    lora_bytes = await file.read()
+    lora_path = LORA_DIR / file.filename
+    lora_path.write_bytes(lora_bytes)
+
+    # Also store in content store so it saves with .cvn
+    content_hash = None
+    if content_store:
+        content_hash = content_store.store(
+            lora_bytes, "application/octet-stream",
+            metadata={"type": "lora", "filename": file.filename},
+        )
+
+    return {
+        "filename": file.filename,
+        "name": lora_path.stem,
+        "size_mb": round(len(lora_bytes) / (1024 * 1024), 1),
+        "content_hash": content_hash,
+    }
+
+
+@router.post("/api/story/loras")
+async def set_story_loras(request: dict):
+    """Set the active LoRAs for the current story.
+    Body: {"loras": [{"name": "...", "filename": "...", "strength": 0.7, "content_hash": "..."}]}
+    """
+    _require_story()
+    story.style_loras = request.get("loras", [])
+
+    # Load into pipeline if available
+    if image_generator and image_generator.pipeline:
+        try:
+            # Unload existing LoRAs first
+            image_generator.pipeline.unload_lora_weights()
+        except Exception:
+            pass
+
+        for lora in story.style_loras:
+            lora_path = LORA_DIR / lora.get("filename", "")
+            if lora_path.exists():
+                try:
+                    adapter_name = lora.get("name", lora_path.stem)
+                    image_generator.pipeline.load_lora_weights(
+                        str(LORA_DIR),
+                        weight_name=lora_path.name,
+                        adapter_name=adapter_name,
+                        local_files_only=True,
+                    )
+                    scale = lora.get("strength", 0.7)
+                    image_generator.pipeline.set_adapters(
+                        [adapter_name], adapter_weights=[scale],
+                    )
+                    print(f"Loaded LoRA: {adapter_name} at {scale}")
+                except Exception as e:
+                    print(f"Failed to load LoRA {lora_path.name}: {e}")
+
+    return {"active_loras": story.style_loras}
+
+
+# --- Style References (IP-Adapter) ---
+
+@router.get("/api/story/style-references")
+async def get_style_references():
+    """Get the story's style reference images for IP-Adapter conditioning."""
+    _require_story()
+    return {
+        "references": story.style_references,
+        "urls": [f"/api/content/{h}" for h in story.style_references],
+    }
+
+
+@router.post("/api/story/style-references/upload")
+async def upload_style_reference(file: UploadFile = File(...)):
+    """Upload a style reference image for story-level IP-Adapter conditioning."""
+    _require_story()
+    if not content_store:
+        raise HTTPException(503, "Content store not available")
+
+    image_bytes = await file.read()
+    content_hash = content_store.store(
+        image_bytes, file.content_type or "image/png",
+        metadata={"type": "style_reference"},
+    )
+    if content_hash not in story.style_references:
+        story.style_references.append(content_hash)
+
+    return {
+        "content_hash": content_hash,
+        "image_url": f"/api/content/{content_hash}",
+        "total_references": len(story.style_references),
+    }
+
+
+@router.delete("/api/story/style-references/{content_hash}")
+async def remove_style_reference(content_hash: str):
+    """Remove a style reference image."""
+    _require_story()
+    story.style_references = [
+        h for h in story.style_references if h != content_hash
+    ]
+    return {"remaining": len(story.style_references)}
+
+
+# --- Civitai LoRA Browser ---
+
+@router.get("/api/civitai/search")
+async def civitai_search(
+    query: str = "",
+    tag: str = "",
+    page: int = 1,
+    limit: int = 20,
+):
+    """Search civitai for SDXL LoRA models.
+    Returns previews, metadata, and download URLs.
+    """
+    import httpx
+
+    params = {
+        "types": "LORA",
+        "sort": "Highest Rated",
+        "period": "AllTime",
+        "limit": limit,
+        "page": page,
+        "baseModels": "SDXL 1.0",
+    }
+    if query:
+        params["query"] = query
+    if tag:
+        params["tag"] = tag
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://civitai.com/api/v1/models",
+                params=params,
+                timeout=15.0,
+            )
+            if response.status_code != 200:
+                raise HTTPException(502, f"Civitai returned {response.status_code}")
+
+            data = response.json()
+            results = []
+            for model in data.get("items", []):
+                # Get the latest SDXL LoRA version
+                version = None
+                for v in model.get("modelVersions", []):
+                    if "SDXL 1.0" in (v.get("baseModel", "") or ""):
+                        version = v
+                        break
+                if not version:
+                    version = model.get("modelVersions", [{}])[0]
+
+                # Get preview image
+                preview_url = ""
+                for img in version.get("images", []):
+                    preview_url = img.get("url", "")
+                    break
+
+                # Get download URL and file info
+                download_url = ""
+                filename = ""
+                size_mb = 0
+                for f in version.get("files", []):
+                    if f.get("name", "").endswith(".safetensors"):
+                        download_url = f.get("downloadUrl", "")
+                        filename = f.get("name", "")
+                        size_mb = round(
+                            f.get("sizeKB", 0) / 1024, 1
+                        )
+                        break
+
+                results.append({
+                    "id": model.get("id"),
+                    "name": model.get("name", ""),
+                    "description": (
+                        model.get("description", "")[:200]
+                    ),
+                    "tags": model.get("tags", []),
+                    "rating": model.get("stats", {}).get("rating", 0),
+                    "downloads": model.get("stats", {}).get(
+                        "downloadCount", 0
+                    ),
+                    "preview_url": preview_url,
+                    "download_url": download_url,
+                    "filename": filename,
+                    "size_mb": size_mb,
+                    "version_name": version.get("name", ""),
+                })
+
+            return {
+                "results": results,
+                "total": data.get("metadata", {}).get(
+                    "totalItems", 0
+                ),
+                "page": page,
+            }
+
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Civitai request failed: {e}")
+
+
+@router.post("/api/civitai/download")
+async def civitai_download(request: dict):
+    """Download a LoRA from civitai by URL and add to library."""
+    download_url = request.get("download_url")
+    filename = request.get("filename", "model.safetensors")
+
+    if not download_url:
+        raise HTTPException(400, "download_url required")
+    if not filename.endswith(".safetensors"):
+        filename += ".safetensors"
+
+    import httpx
+
+    lora_path = LORA_DIR / filename
+    if lora_path.exists():
+        return {
+            "filename": filename,
+            "name": lora_path.stem,
+            "size_mb": round(lora_path.stat().st_size / (1024 * 1024), 1),
+            "status": "already_exists",
+        }
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            response = await client.get(download_url, timeout=120.0)
+            if response.status_code != 200:
+                raise HTTPException(
+                    502, f"Download failed: {response.status_code}"
+                )
+
+            lora_bytes = response.content
+            lora_path.write_bytes(lora_bytes)
+
+            # Store in content store for .cvn save
+            content_hash = None
+            if content_store:
+                content_hash = content_store.store(
+                    lora_bytes, "application/octet-stream",
+                    metadata={
+                        "type": "lora",
+                        "filename": filename,
+                    },
+                )
+
+            return {
+                "filename": filename,
+                "name": lora_path.stem,
+                "size_mb": round(
+                    len(lora_bytes) / (1024 * 1024), 1
+                ),
+                "content_hash": content_hash,
+                "status": "downloaded",
+            }
+
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Download failed: {e}")
+
+
 @router.get("/api/story/validate")
 async def validate_story():
     """Check graph integrity. Returns list of violations (empty = valid)."""
@@ -976,6 +1264,7 @@ async def generate_panel_image(request: GeneratePanelRequest):
     if ip_bridge and image_generator.pipeline:
         ip_kwargs = ip_bridge.prepare_generation_kwargs(
             characters, panel, image_generator.pipeline,
+            style_references=story.style_references if story else [],
         )
 
     async with _generation_lock:

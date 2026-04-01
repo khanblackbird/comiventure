@@ -60,6 +60,44 @@
                 </div>
             </div>
 
+            <!-- LoRA Library -->
+            <div id="lora-section">
+                <h3>Style LoRAs</h3>
+                <div id="lora-active-list">
+                    <!-- Active LoRAs with strength sliders -->
+                </div>
+                <div id="lora-actions">
+                    <label class="upload-btn">
+                        Upload .safetensors
+                        <input type="file" id="lora-upload" accept=".safetensors" hidden>
+                    </label>
+                    <button id="btn-browse-civitai" class="small-btn">Browse Civitai</button>
+                </div>
+                <!-- Civitai browser -->
+                <div id="civitai-browser" hidden>
+                    <div id="civitai-search-row">
+                        <input type="text" id="civitai-search" placeholder="Search LoRAs (e.g. TwoKinds, anime style)...">
+                        <button id="btn-civitai-search">Search</button>
+                    </div>
+                    <div id="civitai-results">
+                        <!-- Results populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Style References (IP-Adapter) -->
+            <div id="style-ref-section">
+                <h3>Style References</h3>
+                <p class="hint">Upload art samples — IP-Adapter conditions every panel toward this style</p>
+                <div id="style-ref-grid">
+                    <!-- Style reference images -->
+                </div>
+                <label class="upload-btn">
+                    Upload Style Image
+                    <input type="file" id="style-ref-upload" accept="image/*" hidden>
+                </label>
+            </div>
+
             <div id="adapter-section">
                 <h3>Story Adapter</h3>
                 <div id="adapter-status">

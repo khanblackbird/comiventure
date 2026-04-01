@@ -123,6 +123,8 @@ def _rebuild_story(data: dict) -> Story:
         genre=data.get("genre", ""),
         negative_prompt=data.get("negative_prompt", ""),
     )
+    story.style_loras = data.get("style_loras", [])
+    story.style_references = data.get("style_references", [])
 
     # First pass: create all chapters
     chapters_by_id: dict[str, Chapter] = {}
