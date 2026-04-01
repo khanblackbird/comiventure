@@ -122,12 +122,10 @@ class Panel(Emitter):
         self.emit_up("panel_updated", self)
 
     def to_prompt(self) -> str:
-        """Panel-level prompt contribution: shot type, narration."""
+        """Panel-level prompt tags: shot type."""
         parts = []
         if self.shot_type:
-            parts.append(f"{self.shot_type} shot")
-        if self.narration:
-            parts.append(self.narration)
+            parts.append(self.shot_type)
         return ", ".join(parts)
 
     def update_narration(self, narration: str) -> None:

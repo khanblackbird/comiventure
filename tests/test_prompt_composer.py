@@ -53,8 +53,8 @@ class TestPageToPrompt:
         assert "dark alley" in prompt
         assert "night" in prompt
         assert "rain" in prompt
-        assert "neon lighting" in prompt
-        assert "tense atmosphere" in prompt
+        assert "neon" in prompt
+        assert "tense" in prompt
         assert "chase scene" in prompt
 
     def test_empty_page_returns_empty_string(self):
@@ -82,7 +82,7 @@ class TestPageToPrompt:
 
         prompt = page.to_prompt()
         assert "forest clearing" in prompt
-        assert "moonlight lighting" in prompt
+        assert "moonlight" in prompt
         # Should not contain empty separators
         assert ",," not in prompt
 
@@ -92,7 +92,8 @@ class TestPageToPrompt:
 # ---------------------------------------------------------------------------
 
 class TestPanelToPrompt:
-    def test_returns_shot_type_and_narration(self):
+    def test_returns_shot_type_without_narration(self):
+        """Narration is text overlay, not image tags — excluded from to_prompt."""
         story = make_story()
         chain = get_chain(story)
         panel = chain["panel"]
@@ -100,8 +101,8 @@ class TestPanelToPrompt:
         panel.narration = "the hero arrives"
 
         prompt = panel.to_prompt()
-        assert "close-up shot" in prompt
-        assert "the hero arrives" in prompt
+        assert "close-up" in prompt
+        assert "the hero arrives" not in prompt
 
     def test_empty_panel_returns_empty_string(self):
         story = make_story()
@@ -117,7 +118,7 @@ class TestPanelToPrompt:
         panel = chain["panel"]
         panel.shot_type = "wide"
         panel.narration = ""
-        assert panel.to_prompt() == "wide shot"
+        assert panel.to_prompt() == "wide"
 
 
 # ---------------------------------------------------------------------------
@@ -202,9 +203,9 @@ class TestScriptToPrompt:
         prompt = script.to_prompt()
         assert "standing" in prompt
         assert "drawing a sword" in prompt
-        assert "(determined)" in prompt
-        assert "wearing plate armor" in prompt
-        assert "[facing camera]" in prompt
+        assert "determined" in prompt
+        assert "plate armor" in prompt
+        assert "facing camera" in prompt
 
     def test_excludes_dialogue(self):
         story = make_story()
@@ -264,7 +265,7 @@ class TestComposeDirectFullChain:
 
         # Order: story first, then panel, then character+script, then page
         story_index = prompt.find("manga")
-        panel_index = prompt.find("medium shot")
+        panel_index = prompt.find("medium")
         character_index = prompt.find("blue-haired")
         page_index = prompt.find("moonlit garden")
 
@@ -314,7 +315,8 @@ class TestComposeDirectFullChain:
         prompt = self.composer._compose_direct(panel, characters)
 
         assert " AND " in prompt
-        assert "2 characters" in prompt
+        assert "blue-haired" in prompt
+        assert "wolf anthro" in prompt
 
     def test_default_style_when_art_style_empty(self):
         """When story.art_style is empty, DEFAULT_ART_STYLE should appear."""

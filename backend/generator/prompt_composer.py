@@ -96,20 +96,22 @@ class PromptComposer:
         context = panel.get_context()
         page_context = context.get("page", {})
 
-        # Build the LLM instruction
+        # Build the LLM instruction — TAG FORMAT, not prose
         system = (
-            "You are an image prompt composer for an AI art generator. "
-            "Given character descriptions, scene context, and character actions, "
-            "write a single concise image generation prompt. "
+            "You are a tag-based prompt composer for Stable Diffusion XL. "
+            "Convert the scene description into comma-separated tags. "
             "Rules:\n"
-            "- Describe ONLY the visual scene, not dialogue or story\n"
-            "- ONLY include the characters listed below — no others\n"
-            "- Convert metaphorical descriptions into visual descriptions "
-            "(e.g. 'goofy expression' → 'wide silly grin', not 'Goofy the character')\n"
-            "- Include the setting and mood as visual elements\n"
-            "- Be specific about character count: if 2 characters, say '2 characters'\n"
-            "- Keep it under 100 words\n"
-            "- Output ONLY the prompt, nothing else"
+            "- Output ONLY comma-separated tags, NO sentences or prose\n"
+            "- Short tags: 1-3 words each, separated by commas\n"
+            "- ONLY include the characters listed — no others\n"
+            "- Convert metaphors to visual tags "
+            "(e.g. 'goofy expression' → 'silly grin', not 'Goofy')\n"
+            "- Character count tag: '1girl', '2girls', '1boy 1girl', etc.\n"
+            "- Include: species, hair, eyes, pose, action, emotion, "
+            "outfit, setting, time, weather, lighting, mood\n"
+            "- Danbooru/e621 tag style preferred\n"
+            "- No articles (a, the), no verbs (is, are), no filler\n"
+            "- Output ONLY the tags, nothing else"
         )
 
         # Build the context message using standard to_prompt() methods
@@ -223,19 +225,15 @@ class PromptComposer:
         if panel_prompt:
             prompt_parts.append(panel_prompt)
 
-        # 3. Characters — appearance (from Character) + script (from Script)
-        if len(characters) > 1:
-            prompt_parts.append(f"{len(characters)} characters")
-
+        # 3. Characters — appearance tags + script tags
+        #    Multi-character: use AND separator (SDXL regional prompting)
         character_descriptions = []
         for character in characters:
-            # Character.to_prompt() is the STANDARD base — always used
             parts = []
             char_prompt = character.to_prompt()
             if char_prompt:
                 parts.append(char_prompt)
 
-            # Script.to_prompt() adds per-panel overrides
             script = panel.get_script(character.character_id)
             if script:
                 script_prompt = script.to_prompt()
@@ -243,7 +241,7 @@ class PromptComposer:
                     parts.append(script_prompt)
 
             if parts:
-                character_descriptions.append(" ".join(parts))
+                character_descriptions.append(", ".join(parts))
 
         if character_descriptions:
             if len(character_descriptions) == 1:

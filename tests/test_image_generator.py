@@ -64,18 +64,19 @@ class TestPromptComposition:
         assert "grips staff" in prompt
         assert "raises hands" in prompt
 
-    def test_prompt_includes_narration(self, story_with_scripts):
+    def test_prompt_excludes_narration(self, story_with_scripts):
+        """Narration is text overlay, not image content — should not be in prompt."""
         _, characters, panel = story_with_scripts
         gen = PanelGenerator(MagicMock())
         prompt = gen.compose_prompt_direct(panel, characters)
-        assert "whispers" in prompt
+        assert "whispers" not in prompt
 
     def test_prompt_includes_emotions(self, story_with_scripts):
         _, characters, panel = story_with_scripts
         gen = PanelGenerator(MagicMock())
         prompt = gen.compose_prompt_direct(panel, characters)
-        assert "(wary)" in prompt
-        assert "(cautious)" in prompt
+        assert "wary" in prompt
+        assert "cautious" in prompt
 
     def test_prompt_excludes_dialogue(self, story_with_scripts):
         _, characters, panel = story_with_scripts

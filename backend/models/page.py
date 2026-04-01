@@ -103,7 +103,7 @@ class Page(Emitter):
         return len(self.panels)
 
     def to_prompt(self) -> str:
-        """Page-level prompt contribution: setting, time, weather, lighting, mood."""
+        """Page-level prompt tags: setting, time, weather, lighting, mood, action."""
         parts = []
         if self.setting:
             parts.append(self.setting)
@@ -112,9 +112,9 @@ class Page(Emitter):
         if self.weather:
             parts.append(self.weather)
         if self.lighting:
-            parts.append(f"{self.lighting} lighting")
+            parts.append(self.lighting)
         if self.mood:
-            parts.append(f"{self.mood} atmosphere")
+            parts.append(self.mood)
         if self.action_context:
             parts.append(self.action_context)
         return ", ".join(parts)
