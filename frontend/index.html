@@ -504,55 +504,55 @@
             </aside>
         </main>
 
-        <!-- Character manager overlay (kept for add/edit forms) -->
-        <div id="character-manager-overlay">
-            <div id="character-manager">
-                <h3>Characters</h3>
-                <div id="character-list-full">
-                    <!-- Full character list with edit/delete -->
-                </div>
-                <div id="add-character-form">
-                    <input type="text" id="new-char-name" placeholder="Name">
-                    <input type="text" id="new-char-appearance" placeholder="Appearance (for image gen)">
-                    <input type="text" id="new-char-personality" placeholder="Personality">
-                    <input type="text" id="new-char-description" placeholder="Description">
-                    <label class="checkbox-row">
-                        <input type="checkbox" id="new-char-temporary">
-                        Temporary (page-scoped extra)
-                    </label>
-                    <button id="btn-create-character">Add</button>
-                </div>
-                <div id="edit-character-form" hidden>
-                    <h4>Edit Character</h4>
-                    <input type="text" id="edit-char-name" placeholder="Name">
-                    <input type="text" id="edit-char-appearance" placeholder="Appearance">
-                    <input type="text" id="edit-char-personality" placeholder="Personality">
-                    <input type="text" id="edit-char-description" placeholder="Description">
-                    <label class="checkbox-row">
-                        <input type="checkbox" id="edit-char-temporary">
-                        Temporary (page-scoped extra)
-                    </label>
-                    <div class="form-actions">
-                        <button id="btn-save-character-edit">Save</button>
-                        <button id="btn-cancel-character-edit">Cancel</button>
-                    </div>
-                </div>
-                <div id="character-manager-actions">
-                    <label class="upload-btn">
-                        Import from .cvn
-                        <input type="file" id="import-character-file" accept=".cvn" hidden>
-                    </label>
-                    <button id="btn-close-characters">Close</button>
-                </div>
-            </div>
-        </div>
-
         <!-- Edit overlay removed — editor is now inline on the panel -->
 
         <!-- Generation progress -->
         <div id="progress-bar" hidden>
             <div id="progress-fill"></div>
             <span id="progress-text">Generating...</span>
+        </div>
+    </div>
+
+    <!-- Character manager overlay — outside #app so it works on any screen -->
+    <div id="character-manager-overlay">
+        <div id="character-manager">
+            <h3>Characters</h3>
+            <div id="character-list-full">
+                <!-- Full character list with edit/delete -->
+            </div>
+            <div id="add-character-form">
+                <input type="text" id="new-char-name" placeholder="Name">
+                <input type="text" id="new-char-appearance" placeholder="Appearance (for image gen)">
+                <input type="text" id="new-char-personality" placeholder="Personality">
+                <input type="text" id="new-char-description" placeholder="Description">
+                <label class="checkbox-row">
+                    <input type="checkbox" id="new-char-temporary">
+                    Temporary (page-scoped extra)
+                </label>
+                <button id="btn-create-character">Add</button>
+            </div>
+            <div id="edit-character-form" hidden>
+                <h4>Edit Character</h4>
+                <input type="text" id="edit-char-name" placeholder="Name">
+                <input type="text" id="edit-char-appearance" placeholder="Appearance">
+                <input type="text" id="edit-char-personality" placeholder="Personality">
+                <input type="text" id="edit-char-description" placeholder="Description">
+                <label class="checkbox-row">
+                    <input type="checkbox" id="edit-char-temporary">
+                    Temporary (page-scoped extra)
+                </label>
+                <div class="form-actions">
+                    <button id="btn-save-character-edit">Save</button>
+                    <button id="btn-cancel-character-edit">Cancel</button>
+                </div>
+            </div>
+            <div id="character-manager-actions">
+                <label class="upload-btn">
+                    Import from .cvn
+                    <input type="file" id="import-character-file" accept=".cvn" hidden>
+                </label>
+                <button id="btn-close-characters">Close</button>
+            </div>
         </div>
     </div>
 
