@@ -352,6 +352,8 @@ class Story(Emitter):
                 "art_style": self.art_style,
                 "genre": self.genre,
                 "negative_prompt": self.negative_prompt,
+                "style_loras": self.style_loras,
+                "style_references": self.style_references,
             }
         }
 

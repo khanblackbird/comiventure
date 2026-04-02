@@ -14,7 +14,3 @@ outputs/
 .coverage
 .pytest_cache/
 data/
-backend/test_*.py
-backend/check_*.py
-backend/download_*.py
-backend/generate_test.py

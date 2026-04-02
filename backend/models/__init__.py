@@ -12,5 +12,6 @@ from .story import Story
 __all__ = [
     "Emitter", "ContentStore", "ContentMeta",
     "Appearance", "AppearanceProperties", "ReferenceImage",
+    "Profile", "PhysicalTraits", "Outfit",
     "Script", "Panel", "Page", "Chapter", "Character", "Story",
 ]

@@ -9,8 +9,15 @@ The API refuses to operate on incomplete data.
 from __future__ import annotations
 
 import asyncio
+import gc
 
 import httpx
+
+try:
+    import torch
+    _HAS_TORCH = True
+except ImportError:
+    _HAS_TORCH = False
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -1357,16 +1364,14 @@ async def delete_script(script_id: str):
     if not script:
         raise HTTPException(404, f"Script {script_id} not found")
 
-    # Find the panel that owns this script
-    for chapter in story.chapters.values():
-        for page in chapter.pages:
-            for panel in page.panels:
-                if script.character_id in panel.scripts and panel.scripts[script.character_id].script_id == script_id:
-                    panel.remove_script(script.character_id)
-                    story.unregister(script_id)
-                    return {"deleted": script_id}
+    # Script knows its parent panel via the emission chain
+    panel = script._parent
+    if not panel or not hasattr(panel, 'remove_script'):
+        raise HTTPException(404, f"Script {script_id} not attached to a panel")
 
-    raise HTTPException(404, f"Script {script_id} not found in any panel")
+    panel.remove_script(script.character_id)
+    story.unregister(script_id)
+    return {"deleted": script_id}
 
 
 # --- Generation ---
@@ -1449,9 +1454,8 @@ async def generate_panel_image(request: GeneratePanelRequest):
     panel.update_image(content_hash, source="ai")
 
     # Free VRAM after generation so ollama (review/chat) can use it
-    import gc
-    import torch
-    torch.cuda.empty_cache()
+    if _HAS_TORCH:
+        torch.cuda.empty_cache()
     gc.collect()
 
     return {
@@ -1608,9 +1612,8 @@ async def review_panel_image(panel_id: str):
 
     # Free VRAM before calling ollama — SDXL and LLaVA compete for GPU
     if image_generator and image_generator.pipeline:
-        import gc
-        import torch
-        torch.cuda.empty_cache()
+        if _HAS_TORCH:
+            torch.cuda.empty_cache()
         gc.collect()
 
     try:

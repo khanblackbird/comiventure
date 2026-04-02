@@ -662,7 +662,7 @@ class ComiventureApp {
         document.getElementById('btn-solo-thumbs-down').addEventListener('click', () => this._soloFeedback(false));
         document.getElementById('btn-solo-regenerate').addEventListener('click', () => this._soloRegenerate());
         document.getElementById('btn-edit-character-detail').addEventListener('click', () => {
-            if (this._detailCharacterId) this._startCharacterEdit(this._detailCharacterId);
+            if (this._detailCharacterId) this._editCharacter(this._detailCharacterId);
         });
 
         // Character manager
