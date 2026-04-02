@@ -71,15 +71,20 @@
                         Upload .safetensors
                         <input type="file" id="lora-upload" accept=".safetensors" hidden>
                     </label>
+                    <button id="btn-browse-hf" class="small-btn">Browse HuggingFace</button>
                     <button id="btn-browse-civitai" class="small-btn">Browse Civitai</button>
                 </div>
-                <!-- Civitai browser -->
-                <div id="civitai-browser" hidden>
-                    <div id="civitai-search-row">
-                        <input type="text" id="civitai-search" placeholder="Search LoRAs (e.g. TwoKinds, anime style)...">
-                        <button id="btn-civitai-search">Search</button>
+                <!-- LoRA browser -->
+                <div id="lora-browser" hidden>
+                    <div id="lora-search-row">
+                        <input type="text" id="lora-search" placeholder="Search LoRAs (e.g. anime style, furry)...">
+                        <select id="lora-source">
+                            <option value="huggingface">HuggingFace</option>
+                            <option value="civitai">Civitai</option>
+                        </select>
+                        <button id="btn-lora-search">Search</button>
                     </div>
-                    <div id="civitai-results">
+                    <div id="lora-results">
                         <!-- Results populated by JS -->
                     </div>
                 </div>

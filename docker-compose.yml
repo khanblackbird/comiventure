@@ -1,17 +1,17 @@
 services:
   app:
     build: .
-    ports:
-      - "8000:8000"
     volumes:
       - ./backend:/app/backend
       - ./frontend:/app/frontend
       - ./tests:/app/tests
       - model_cache:/app/data/models
       - content_data:/app/data/content
+    network_mode: host
     environment:
-      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_HOST=http://127.0.0.1:11434
       - HF_TOKEN=${HF_TOKEN:-}
+      - CIVITAI_PROXY=${CIVITAI_PROXY:-}
     deploy:
       resources:
         reservations:

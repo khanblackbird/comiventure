@@ -468,6 +468,155 @@ async def remove_style_reference(content_hash: str):
     return {"remaining": len(story.style_references)}
 
 
+# --- HuggingFace LoRA Browser ---
+
+@router.get("/api/huggingface/search")
+async def huggingface_search(
+    query: str = "",
+    page: int = 0,
+    limit: int = 20,
+):
+    """Search HuggingFace for SDXL LoRA models."""
+    search_query = f"sdxl lora {query}".strip()
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://huggingface.co/api/models",
+                params={
+                    "search": search_query,
+                    "filter": "diffusers",
+                    "sort": "downloads",
+                    "direction": "-1",
+                    "limit": limit,
+                    "skip": page * limit,
+                },
+                timeout=15.0,
+            )
+            if response.status_code != 200:
+                raise HTTPException(
+                    502, f"HuggingFace returned {response.status_code}"
+                )
+
+            models = response.json()
+            results = []
+            for model in models:
+                model_id = model.get("modelId", "")
+                tags = model.get("tags", [])
+
+                # Try to find a safetensors file
+                has_safetensors = any(
+                    s.get("rfilename", "").endswith(".safetensors")
+                    for s in model.get("siblings", [])
+                )
+
+                results.append({
+                    "id": model_id,
+                    "name": model_id.split("/")[-1] if "/" in model_id else model_id,
+                    "author": model_id.split("/")[0] if "/" in model_id else "",
+                    "description": model.get("description", "")[:200],
+                    "tags": tags[:10],
+                    "downloads": model.get("downloads", 0),
+                    "likes": model.get("likes", 0),
+                    "preview_url": f"https://huggingface.co/{model_id}/resolve/main/images/preview.png",
+                    "model_id": model_id,
+                    "has_safetensors": has_safetensors,
+                })
+
+            return {
+                "results": results,
+                "page": page,
+                "source": "huggingface",
+            }
+
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"HuggingFace request failed: {e}")
+
+
+@router.post("/api/huggingface/download")
+async def huggingface_download(request: dict):
+    """Download a LoRA from HuggingFace and add to library."""
+    model_id = request.get("model_id")
+    if not model_id:
+        raise HTTPException(400, "model_id required")
+
+    filename = request.get("filename", "")
+    if not filename:
+        filename = model_id.split("/")[-1] + ".safetensors"
+
+    lora_path = LORA_DIR / filename
+    if lora_path.exists():
+        return {
+            "filename": filename,
+            "name": lora_path.stem,
+            "size_mb": round(lora_path.stat().st_size / (1024 * 1024), 1),
+            "status": "already_exists",
+        }
+
+    # Find the safetensors file in the repo
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            # List files in the repo
+            files_resp = await client.get(
+                f"https://huggingface.co/api/models/{model_id}",
+                timeout=15.0,
+            )
+            if files_resp.status_code != 200:
+                raise HTTPException(502, "Could not fetch model info")
+
+            model_info = files_resp.json()
+            safetensors_file = None
+            for sibling in model_info.get("siblings", []):
+                fname = sibling.get("rfilename", "")
+                if fname.endswith(".safetensors"):
+                    safetensors_file = fname
+                    break
+
+            if not safetensors_file:
+                raise HTTPException(
+                    404, "No .safetensors file found in this model"
+                )
+
+            # Download the file
+            download_url = (
+                f"https://huggingface.co/{model_id}"
+                f"/resolve/main/{safetensors_file}"
+            )
+            response = await client.get(download_url, timeout=120.0)
+            if response.status_code != 200:
+                raise HTTPException(
+                    502, f"Download failed: {response.status_code}"
+                )
+
+            lora_bytes = response.content
+            lora_path.write_bytes(lora_bytes)
+
+            content_hash = None
+            if content_store:
+                content_hash = content_store.store(
+                    lora_bytes, "application/octet-stream",
+                    metadata={
+                        "type": "lora",
+                        "filename": filename,
+                        "source": "huggingface",
+                        "model_id": model_id,
+                    },
+                )
+
+            return {
+                "filename": filename,
+                "name": lora_path.stem,
+                "size_mb": round(
+                    len(lora_bytes) / (1024 * 1024), 1
+                ),
+                "content_hash": content_hash,
+                "status": "downloaded",
+            }
+
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Download failed: {e}")
+
+
 # --- Civitai LoRA Browser ---
 
 def _civitai_proxy() -> str:

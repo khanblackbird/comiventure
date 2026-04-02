@@ -265,15 +265,19 @@ class ComiventureApp {
         }
     }
 
-    async _searchCivitai() {
-        const query = document.getElementById('civitai-search').value.trim();
+    async _searchLoras() {
+        const query = document.getElementById('lora-search').value.trim();
         if (!query) return;
 
-        const container = document.getElementById('civitai-results');
-        container.innerHTML = '<span class="hint">Searching...</span>';
+        const source = document.getElementById('lora-source').value;
+        const container = document.getElementById('lora-results');
+        container.innerHTML = `<span class="hint">Searching ${source}...</span>`;
 
         try {
-            const data = await api._get(`/api/civitai/search?query=${encodeURIComponent(query)}`);
+            const endpoint = source === 'civitai'
+                ? `/api/civitai/search?query=${encodeURIComponent(query)}`
+                : `/api/huggingface/search?query=${encodeURIComponent(query)}`;
+            const data = await api._get(endpoint);
             container.innerHTML = '';
 
             if (!data.results || data.results.length === 0) {
@@ -290,6 +294,7 @@ class ComiventureApp {
                     img.src = result.preview_url;
                     img.alt = result.name;
                     img.className = 'civitai-preview';
+                    img.onerror = () => { img.style.display = 'none'; };
                     card.appendChild(img);
                 }
 
@@ -299,12 +304,26 @@ class ComiventureApp {
                 const name = document.createElement('div');
                 name.className = 'civitai-name';
                 name.textContent = result.name;
+                if (result.author) {
+                    name.textContent += ` by ${result.author}`;
+                }
                 info.appendChild(name);
 
                 const meta = document.createElement('div');
                 meta.className = 'civitai-meta';
-                meta.textContent = `${result.size_mb}MB · ${result.downloads} downloads`;
+                const parts = [];
+                if (result.size_mb) parts.push(`${result.size_mb}MB`);
+                if (result.downloads) parts.push(`${result.downloads} downloads`);
+                if (result.likes) parts.push(`${result.likes} likes`);
+                meta.textContent = parts.join(' · ');
                 info.appendChild(meta);
+
+                if (result.tags && result.tags.length > 0) {
+                    const tags = document.createElement('div');
+                    tags.className = 'civitai-meta';
+                    tags.textContent = result.tags.slice(0, 5).join(', ');
+                    info.appendChild(tags);
+                }
 
                 const dlBtn = document.createElement('button');
                 dlBtn.className = 'small-btn';
@@ -313,10 +332,17 @@ class ComiventureApp {
                     dlBtn.disabled = true;
                     dlBtn.textContent = 'Downloading...';
                     try {
-                        await api._post('/api/civitai/download', {
-                            download_url: result.download_url,
-                            filename: result.filename,
-                        });
+                        if (source === 'civitai') {
+                            await api._post('/api/civitai/download', {
+                                download_url: result.download_url,
+                                filename: result.filename,
+                            });
+                        } else {
+                            await api._post('/api/huggingface/download', {
+                                model_id: result.model_id,
+                                filename: result.filename || '',
+                            });
+                        }
                         dlBtn.textContent = 'Downloaded';
                         this._renderLoraSection();
                     } catch (e) {
@@ -331,7 +357,7 @@ class ComiventureApp {
             }
         } catch (error) {
             container.innerHTML = `<span class="hint">Search failed: ${error.message}</span>`;
-            console.error('Civitai search failed:', error);
+            console.error('LoRA search failed:', error);
         }
     }
 
@@ -580,13 +606,17 @@ class ComiventureApp {
             if (event.target.files[0]) await this._uploadLora(event.target.files[0]);
             event.target.value = '';
         });
-        document.getElementById('btn-browse-civitai').addEventListener('click', () => {
-            const browser = document.getElementById('civitai-browser');
-            browser.hidden = !browser.hidden;
+        document.getElementById('btn-browse-hf').addEventListener('click', () => {
+            document.getElementById('lora-browser').hidden = false;
+            document.getElementById('lora-source').value = 'huggingface';
         });
-        document.getElementById('btn-civitai-search').addEventListener('click', () => this._searchCivitai());
-        document.getElementById('civitai-search').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this._searchCivitai();
+        document.getElementById('btn-browse-civitai').addEventListener('click', () => {
+            document.getElementById('lora-browser').hidden = false;
+            document.getElementById('lora-source').value = 'civitai';
+        });
+        document.getElementById('btn-lora-search').addEventListener('click', () => this._searchLoras());
+        document.getElementById('lora-search').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this._searchLoras();
         });
 
         // Style references

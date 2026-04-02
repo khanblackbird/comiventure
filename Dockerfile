@@ -19,7 +19,7 @@ WORKDIR /app
 RUN python -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu124
 
 # Install AI model dependencies (separate layer for caching)
-RUN python -m pip install --no-cache-dir diffusers transformers accelerate safetensors Pillow python-multipart
+RUN python -m pip install --no-cache-dir diffusers transformers accelerate safetensors Pillow python-multipart "httpx[socks]"
 
 # Install app dependencies
 COPY requirements.txt .
