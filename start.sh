@@ -7,6 +7,9 @@
 #   ./start.sh restart      Restart the app container
 #   ./start.sh stop         Stop everything
 #   ./start.sh logs         Tail the app logs
+#   ./start.sh test         Run backend tests (fast, no browser)
+#   ./start.sh test-ui      Run UI tests (Playwright, launches browser)
+#   ./start.sh test-all     Run all tests
 #   ./start.sh setup-proxy  First-time WARP proxy install
 
 set -e
@@ -61,6 +64,26 @@ case "${1:-}" in
         sudo docker compose logs -f app
         ;;
 
+    test)
+        echo "Running backend tests..."
+        .venv/bin/python -m pytest tests/ --ignore=tests/test_ui.py -v
+        ;;
+
+    test-ui)
+        echo "Running UI tests (Playwright)..."
+        .venv/bin/python -m pytest tests/test_ui.py -v
+        ;;
+
+    test-all)
+        echo "Running all tests..."
+        echo ""
+        echo "=== Backend ==="
+        .venv/bin/python -m pytest tests/ --ignore=tests/test_ui.py -v
+        echo ""
+        echo "=== UI (Playwright) ==="
+        .venv/bin/python -m pytest tests/test_ui.py -v
+        ;;
+
     setup-proxy)
         echo "Installing Cloudflare WARP..."
         sudo pacman -S --needed base-devel git
@@ -96,13 +119,16 @@ case "${1:-}" in
         ;;
 
     *)
-        echo "Usage: ./start.sh [proxy|restart|stop|logs|setup-proxy]"
+        echo "Usage: ./start.sh [command]"
         echo ""
         echo "  (no args)     Start server without proxy"
         echo "  proxy         Start server + WARP proxy for Civitai"
         echo "  restart       Restart the app container"
         echo "  stop          Stop server and disconnect proxy"
         echo "  logs          Tail the app logs"
+        echo "  test          Run backend tests (fast)"
+        echo "  test-ui       Run UI tests (Playwright)"
+        echo "  test-all      Run all tests"
         echo "  setup-proxy   First-time WARP proxy install"
         ;;
 esac
