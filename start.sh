@@ -4,6 +4,7 @@
 # Usage:
 #   ./start.sh              Start server (no proxy)
 #   ./start.sh proxy        Start server + WARP proxy for Civitai
+#   ./start.sh restart      Restart the app container
 #   ./start.sh stop         Stop everything
 #   ./start.sh logs         Tail the app logs
 #   ./start.sh setup-proxy  First-time WARP proxy install
@@ -39,6 +40,13 @@ case "${1:-}" in
         echo ""
         echo "Server: http://localhost:8000"
         echo "Civitai: proxied through WARP"
+        sudo docker compose logs -f app
+        ;;
+
+    restart)
+        echo "Restarting app container..."
+        sudo docker compose restart app
+        echo "Restarted. Tailing logs..."
         sudo docker compose logs -f app
         ;;
 
@@ -88,10 +96,11 @@ case "${1:-}" in
         ;;
 
     *)
-        echo "Usage: ./start.sh [proxy|stop|logs|setup-proxy]"
+        echo "Usage: ./start.sh [proxy|restart|stop|logs|setup-proxy]"
         echo ""
         echo "  (no args)     Start server without proxy"
         echo "  proxy         Start server + WARP proxy for Civitai"
+        echo "  restart       Restart the app container"
         echo "  stop          Stop server and disconnect proxy"
         echo "  logs          Tail the app logs"
         echo "  setup-proxy   First-time WARP proxy install"

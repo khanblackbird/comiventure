@@ -189,3 +189,47 @@ class TestGenerationKwargs:
 
         bridge.prepare_generation_kwargs(characters, panel, pipeline)
         pipeline.load_ip_adapter.assert_called_once()
+
+
+class TestLoadFailure:
+    def test_ensure_loaded_handles_missing_model(self, bridge):
+        """If IP-Adapter model isn't downloaded, ensure_loaded returns False
+        instead of crashing. Generation must work without it."""
+        pipeline = MagicMock()
+        pipeline.load_ip_adapter.side_effect = OSError(
+            "h94/IP-Adapter does not appear to have a file named ip-adapter_sdxl.bin"
+        )
+        result = bridge.ensure_loaded(pipeline)
+        assert result is False
+        assert bridge._load_failed is True
+
+    def test_load_failure_does_not_retry(self, bridge):
+        """After one failure, ensure_loaded should not retry."""
+        pipeline = MagicMock()
+        pipeline.load_ip_adapter.side_effect = OSError("not found")
+        bridge.ensure_loaded(pipeline)
+        bridge.ensure_loaded(pipeline)
+        # Only tried once despite two calls
+        assert pipeline.load_ip_adapter.call_count == 1
+
+    def test_prepare_returns_empty_when_load_fails(self, story_with_refs, bridge):
+        """If IP-Adapter can't load, prepare_generation_kwargs returns {}
+        so generation proceeds without conditioning."""
+        story, panel, _ = story_with_refs
+        characters = [story.get_character("c1")]
+        pipeline = MagicMock()
+        pipeline.load_ip_adapter.side_effect = OSError("not found")
+
+        kwargs = bridge.prepare_generation_kwargs(characters, panel, pipeline)
+        assert kwargs == {}
+
+    def test_generation_not_blocked_by_missing_ip_adapter(self, story_with_refs, bridge):
+        """The full prepare flow must never raise — it returns {} on failure."""
+        story, panel, _ = story_with_refs
+        characters = [story.get_character("c1")]
+        pipeline = MagicMock()
+        pipeline.load_ip_adapter.side_effect = Exception("anything")
+
+        # Must not raise
+        kwargs = bridge.prepare_generation_kwargs(characters, panel, pipeline)
+        assert isinstance(kwargs, dict)
