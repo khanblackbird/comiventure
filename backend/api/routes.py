@@ -1448,6 +1448,12 @@ async def generate_panel_image(request: GeneratePanelRequest):
 
     panel.update_image(content_hash, source="ai")
 
+    # Free VRAM after generation so ollama (review/chat) can use it
+    import gc
+    import torch
+    torch.cuda.empty_cache()
+    gc.collect()
+
     return {
         "content_hash": content_hash,
         "image_url": f"/api/content/{content_hash}",
@@ -1600,9 +1606,23 @@ async def review_panel_image(panel_id: str):
     if meta and meta.metadata:
         original_prompt = meta.metadata.get("prompt", "")
 
-    from backend.generator.image_reviewer import ImageReviewer
-    reviewer = ImageReviewer()
-    result = await reviewer.review(image_bytes, original_prompt)
+    # Free VRAM before calling ollama — SDXL and LLaVA compete for GPU
+    if image_generator and image_generator.pipeline:
+        import gc
+        import torch
+        torch.cuda.empty_cache()
+        gc.collect()
+
+    try:
+        from backend.generator.image_reviewer import ImageReviewer
+        reviewer = ImageReviewer()
+        result = await reviewer.review(image_bytes, original_prompt)
+    except Exception as e:
+        print(f"Review failed: {e}")
+        raise HTTPException(
+            503,
+            f"Review failed — ollama may be unavailable or out of memory: {e}"
+        )
 
     # Store review data on the panel for unified training
     panel._last_review = {
