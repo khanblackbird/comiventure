@@ -152,12 +152,13 @@ class CharacterChat:
 
         message = (
             f"{scene}\n\n"
-            "Suggest what you would do and say in this panel. "
+            "Suggest visual details for this panel. "
+            "Do NOT suggest dialogue — only visual/physical details. "
             "Respond ONLY in this exact format:\n"
-            "dialogue: (what you say)\n"
             "action: (what you physically do)\n"
             "emotion: (one word emotion)\n"
             "pose: (body position — standing, sitting, crouching, etc.)\n"
+            "outfit: (what you are wearing, if different from default)\n"
             "direction: (camera/framing suggestion)"
         )
 
@@ -165,8 +166,8 @@ class CharacterChat:
 
         # Parse the response
         result = {
-            "dialogue": "", "action": "", "emotion": "",
-            "pose": "", "direction": "",
+            "action": "", "emotion": "",
+            "pose": "", "outfit": "", "direction": "",
         }
         for line in response.split("\n"):
             line = line.strip()

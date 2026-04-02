@@ -1480,9 +1480,10 @@ class ComiventureApp {
             const s = result.suggestions;
 
             const response = [
-                s.dialogue ? `"${s.dialogue}"` : null,
                 s.action ? `*${s.action}*` : null,
                 s.emotion ? `Emotion: ${s.emotion}` : null,
+                s.pose ? `Pose: ${s.pose}` : null,
+                s.outfit ? `Outfit: ${s.outfit}` : null,
                 s.direction ? `Direction: ${s.direction}` : null,
             ].filter(Boolean).join('\n');
 
@@ -1534,10 +1535,11 @@ class ComiventureApp {
         const script = panel.scripts[characterId];
         try {
             const updated = await api.updateScript(script.script_id, {
-                dialogue: suggestion.dialogue || script.dialogue,
                 action: suggestion.action || script.action,
                 emotion: suggestion.emotion || script.emotion,
+                pose: suggestion.pose || script.pose,
                 direction: suggestion.direction || script.direction,
+                // Dialogue is NOT auto-filled — user writes it manually
             });
             Object.assign(script, updated);
             this._renderPanelScripts();
@@ -1741,10 +1743,10 @@ class ComiventureApp {
                             const charName = this.characters[charId]?.name || charId;
                             const parts = [
                                 s.action ? `*${s.action}*` : null,
-                                s.dialogue ? `"${s.dialogue}"` : null,
                                 s.emotion ? `Emotion: ${s.emotion}` : null,
-                                s.direction ? `Direction: ${s.direction}` : null,
                                 s.pose ? `Pose: ${s.pose}` : null,
+                                s.outfit ? `Outfit: ${s.outfit}` : null,
+                                s.direction ? `Direction: ${s.direction}` : null,
                             ].filter(Boolean);
                             if (parts.length > 0) {
                                 this._addChatMessage(
@@ -1791,7 +1793,7 @@ class ComiventureApp {
                 if (suggestion.action) updates.action = suggestion.action;
                 if (suggestion.emotion) updates.emotion = suggestion.emotion;
                 if (suggestion.direction) updates.direction = suggestion.direction;
-                if (suggestion.dialogue) updates.dialogue = suggestion.dialogue;
+                // Dialogue is NOT auto-filled — user writes it manually
                 if (suggestion.pose) updates.pose = suggestion.pose;
 
                 if (Object.keys(updates).length > 0) {
