@@ -48,20 +48,35 @@ class IPAdapterBridge:
         self.model_name = model_name
         self.scale = scale
         self._loaded = False
+        self._load_failed = False
 
-    def ensure_loaded(self, pipeline) -> None:
-        """Load IP-Adapter weights into the pipeline. Only once."""
+    def ensure_loaded(self, pipeline) -> bool:
+        """Load IP-Adapter weights into the pipeline. Only once.
+        Returns True if loaded, False if unavailable.
+        """
         if self._loaded:
-            return
+            return True
+        if self._load_failed:
+            return False
 
-        pipeline.load_ip_adapter(
-            self.model_name,
-            subfolder=IP_ADAPTER_SUBFOLDER,
-            weight_name=IP_ADAPTER_WEIGHT_NAME,
-            local_files_only=True,
-        )
-        pipeline.set_ip_adapter_scale(self.scale)
-        self._loaded = True
+        try:
+            pipeline.load_ip_adapter(
+                self.model_name,
+                subfolder=IP_ADAPTER_SUBFOLDER,
+                weight_name=IP_ADAPTER_WEIGHT_NAME,
+                local_files_only=True,
+            )
+            pipeline.set_ip_adapter_scale(self.scale)
+            self._loaded = True
+            return True
+        except Exception as e:
+            print(
+                f"IP-Adapter not available ({e}). "
+                f"Generation will work without it. "
+                f"To enable: download {self.model_name} to HF cache."
+            )
+            self._load_failed = True
+            return False
 
     def collect_reference_images(
         self,
@@ -128,6 +143,7 @@ class IPAdapterBridge:
         if not images:
             return {}
 
-        self.ensure_loaded(pipeline)
+        if not self.ensure_loaded(pipeline):
+            return {}  # IP-Adapter not available, skip silently
 
         return {"ip_adapter_image": images}
