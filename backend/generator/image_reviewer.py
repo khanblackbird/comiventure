@@ -15,8 +15,11 @@ from __future__ import annotations
 
 import os
 import base64
+import logging
 import httpx
 from dataclasses import dataclass
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -78,10 +81,11 @@ class ImageReviewer:
                         m["name"] for m in tags.json().get("models", [])
                     ]
                     if self.vision_model not in models:
-                        print(
-                            f"Vision model '{self.vision_model}' not found. "
-                            f"Available: {models}. "
-                            f"Pull with: ollama pull {self.vision_model}"
+                        log.warning(
+                            "Vision model '%s' not found. "
+                            "Available: %s. "
+                            "Pull with: ollama pull %s",
+                            self.vision_model, models, self.vision_model,
                         )
                         return ""
 
@@ -106,12 +110,12 @@ class ImageReviewer:
                     result = response.json()
                     return result.get("response", "").strip()
                 else:
-                    print(
-                        f"Captioning returned {response.status_code}: "
-                        f"{response.text[:200]}"
+                    log.warning(
+                        "Captioning returned %s: %s",
+                        response.status_code, response.text[:200],
                     )
         except Exception as e:
-            print(f"Image captioning failed: {e}")
+            log.warning("Image captioning failed: %s", e)
 
         return ""
 
@@ -147,7 +151,7 @@ class ImageReviewer:
                         original_prompt, reverse_caption, text
                     )
         except Exception as e:
-            print(f"Prompt comparison failed: {e}")
+            log.warning("Prompt comparison failed: %s", e)
 
         return ReviewResult(
             original_prompt=original_prompt,

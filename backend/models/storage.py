@@ -30,7 +30,8 @@ def save_story(story: Story, content_store: ContentStore, file_path: str) -> str
     """
     file_path = _ensure_extension(file_path)
 
-    # Validate integrity before saving
+    # Auto-repair then validate integrity before saving
+    story.repair()
     story.validate_or_raise()
 
     # Collect all content hashes referenced by panels
@@ -162,7 +163,6 @@ def _rebuild_story(data: dict) -> Story:
                     panel_id=panel_data["panel_id"],
                     image_hash=panel_data.get("image_hash"),
                     video_hash=panel_data.get("video_hash"),
-                    is_animated=panel_data.get("is_animated", False),
                     narration=panel_data.get("narration", ""),
                     shot_type=panel_data.get("shot_type", ""),
                 )

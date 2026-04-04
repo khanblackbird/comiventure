@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import logging
+import time
+from pathlib import Path
+from typing import Optional
 
 import httpx
-
 try:
     import torch
     _HAS_TORCH = True
@@ -21,19 +24,17 @@ except ImportError:
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional
-from pathlib import Path
 
 from backend.models import Story, Character, Chapter, Page, Panel, Script, ContentStore
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 # Set by app.py at startup
 image_generator = None
 content_store: ContentStore | None = None
 story: Story | None = None
 
-# One generation at a time — 8GB VRAM
 _generation_lock = asyncio.Lock()
 
 
@@ -348,6 +349,9 @@ async def import_character(file: UploadFile = File(...)):
 LORA_DIR = Path("data/loras")
 LORA_DIR.mkdir(parents=True, exist_ok=True)
 
+CHECKPOINT_DIR = Path("data/checkpoints")
+CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+
 
 @router.get("/api/loras")
 async def list_loras():
@@ -362,7 +366,7 @@ async def list_loras():
     # Also include any LoRAs stored in content store (from .cvn loads)
     if story:
         for lora in story.style_loras:
-            if not any(l["name"] == lora.get("name") for l in loras):
+            if not any(existing["name"] == lora.get("name") for existing in loras):
                 loras.append(lora)
     return {"loras": loras}
 
@@ -374,7 +378,8 @@ async def upload_lora(file: UploadFile = File(...)):
         raise HTTPException(400, "File must be a .safetensors file")
 
     lora_bytes = await file.read()
-    lora_path = LORA_DIR / file.filename
+    safe_name = Path(file.filename).name
+    lora_path = LORA_DIR / safe_name
     lora_path.write_bytes(lora_bytes)
 
     # Also store in content store so it saves with .cvn
@@ -382,14 +387,37 @@ async def upload_lora(file: UploadFile = File(...)):
     if content_store:
         content_hash = content_store.store(
             lora_bytes, "application/octet-stream",
-            metadata={"type": "lora", "filename": file.filename},
+            metadata={"type": "lora", "filename": safe_name},
         )
 
     return {
-        "filename": file.filename,
+        "filename": safe_name,
         "name": lora_path.stem,
         "size_mb": round(len(lora_bytes) / (1024 * 1024), 1),
         "content_hash": content_hash,
+    }
+
+
+@router.post("/api/checkpoints/upload")
+async def upload_checkpoint(file: UploadFile = File(...)):
+    """Upload a .safetensors checkpoint file (full model weights from Civitai etc)."""
+    if not file.filename or not file.filename.endswith(".safetensors"):
+        raise HTTPException(400, "File must be a .safetensors file")
+
+    safe_name = Path(file.filename).name
+    checkpoint_path = CHECKPOINT_DIR / safe_name
+
+    # Stream to disk — checkpoints are large (2-7GB)
+    with open(checkpoint_path, "wb") as f:
+        while chunk := await file.read(8 * 1024 * 1024):
+            f.write(chunk)
+
+    size_mb = round(checkpoint_path.stat().st_size / (1024 * 1024), 1)
+    return {
+        "filename": safe_name,
+        "name": checkpoint_path.stem,
+        "size_mb": size_mb,
+        "model_key": f"local:{checkpoint_path.stem}",
     }
 
 
@@ -406,7 +434,7 @@ async def set_story_loras(request: dict):
         try:
             # Unload existing LoRAs first
             image_generator.pipeline.unload_lora_weights()
-        except Exception:
+        except (RuntimeError, ValueError, OSError):
             pass
 
         for lora in story.style_loras:
@@ -424,9 +452,9 @@ async def set_story_loras(request: dict):
                     image_generator.pipeline.set_adapters(
                         [adapter_name], adapter_weights=[scale],
                     )
-                    print(f"Loaded LoRA: {adapter_name} at {scale}")
+                    log.info("Loaded LoRA: %s at %s", adapter_name, scale)
                 except Exception as e:
-                    print(f"Failed to load LoRA {lora_path.name}: {e}")
+                    log.warning("Failed to load LoRA %s: %s", lora_path.name, e)
 
     return {"active_loras": story.style_loras}
 
@@ -540,6 +568,32 @@ async def huggingface_search(
         raise HTTPException(502, f"HuggingFace request failed: {e}")
 
 
+def _download_and_store_lora(
+    lora_bytes: bytes, filename: str, source_metadata: dict,
+) -> dict:
+    """Write downloaded LoRA bytes to disk and content store.
+
+    Returns a result dict with filename, name, size_mb, content_hash, and status.
+    """
+    lora_path = LORA_DIR / filename
+    lora_path.write_bytes(lora_bytes)
+
+    content_hash = None
+    if content_store:
+        content_hash = content_store.store(
+            lora_bytes, "application/octet-stream",
+            metadata={"type": "lora", "filename": filename, **source_metadata},
+        )
+
+    return {
+        "filename": filename,
+        "name": lora_path.stem,
+        "size_mb": round(len(lora_bytes) / (1024 * 1024), 1),
+        "content_hash": content_hash,
+        "status": "downloaded",
+    }
+
+
 @router.post("/api/huggingface/download")
 async def huggingface_download(request: dict):
     """Download a LoRA from HuggingFace and add to library."""
@@ -595,30 +649,10 @@ async def huggingface_download(request: dict):
                     502, f"Download failed: {response.status_code}"
                 )
 
-            lora_bytes = response.content
-            lora_path.write_bytes(lora_bytes)
-
-            content_hash = None
-            if content_store:
-                content_hash = content_store.store(
-                    lora_bytes, "application/octet-stream",
-                    metadata={
-                        "type": "lora",
-                        "filename": filename,
-                        "source": "huggingface",
-                        "model_id": model_id,
-                    },
-                )
-
-            return {
-                "filename": filename,
-                "name": lora_path.stem,
-                "size_mb": round(
-                    len(lora_bytes) / (1024 * 1024), 1
-                ),
-                "content_hash": content_hash,
-                "status": "downloaded",
-            }
+            return _download_and_store_lora(
+                response.content, filename,
+                {"source": "huggingface", "model_id": model_id},
+            )
 
     except httpx.HTTPError as e:
         raise HTTPException(502, f"Download failed: {e}")
@@ -658,8 +692,6 @@ async def civitai_search(
     """Search civitai for SDXL LoRA models.
     Returns previews, metadata, and download URLs.
     """
-    import httpx
-
     params = {
         "types": "LORA",
         "sort": "Highest Rated",
@@ -773,29 +805,10 @@ async def civitai_download(request: dict):
                     502, f"Download failed: {response.status_code}"
                 )
 
-            lora_bytes = response.content
-            lora_path.write_bytes(lora_bytes)
-
-            # Store in content store for .cvn save
-            content_hash = None
-            if content_store:
-                content_hash = content_store.store(
-                    lora_bytes, "application/octet-stream",
-                    metadata={
-                        "type": "lora",
-                        "filename": filename,
-                    },
-                )
-
-            return {
-                "filename": filename,
-                "name": lora_path.stem,
-                "size_mb": round(
-                    len(lora_bytes) / (1024 * 1024), 1
-                ),
-                "content_hash": content_hash,
-                "status": "downloaded",
-            }
+            return _download_and_store_lora(
+                response.content, filename,
+                {"source": "civitai"},
+            )
 
     except httpx.HTTPError as e:
         raise HTTPException(502, f"Download failed: {e}")
@@ -1167,7 +1180,7 @@ async def save_conversation(character_id: str, messages: list[dict]):
     character = _require_character(character_id)
     character.conversations.append({
         "messages": messages,
-        "saved_at": __import__("time").time(),
+        "saved_at": time.time(),
     })
     return {"count": len(character.conversations)}
 
@@ -1425,15 +1438,9 @@ async def generate_panel_image(request: GeneratePanelRequest):
     }
 
     composer = panel_gen.prompt_composer
-    print("=" * 60)
-    print(f"GENERATING PANEL: {request.panel_id}")
-    print(f"MODEL: {image_generator.model_id}")
-    print(f"METHOD: {getattr(composer, 'last_method', 'unknown')}")
-    print(f"PROMPT: {prompt}")
-    print(f"NEGATIVE: {negative_prompt}")
-    print(f"PARAMS: {generation_params}")
-    print(f"CHARACTERS: {[c.name for c in characters]}")
-    print("=" * 60)
+    log.info("Generating panel=%s model=%s method=%s prompt=%s",
+             request.panel_id, image_generator.model_id,
+             getattr(composer, 'last_method', 'unknown'), prompt)
 
     # Collect IP-Adapter reference images for conditioning
     ip_kwargs = {}
@@ -1494,15 +1501,22 @@ async def inpaint_panel(request: InpaintRequest):
     if _generation_lock.locked():
         raise HTTPException(429, "Generation in progress, please wait")
 
-    print("=" * 60)
-    print(f"INPAINTING PANEL: {request.panel_id}")
-    print(f"PROMPT: {request.prompt}")
-    print(f"SOURCE IMAGE: {panel.image_hash[:16]}...")
-    print(f"STRENGTH: {request.strength}")
-    print("=" * 60)
+    log.info("Inpainting panel=%s prompt=%s source=%s strength=%s",
+             request.panel_id, request.prompt,
+             panel.image_hash[:16], request.strength)
 
     from backend.generator.panel_generator import PanelGenerator
-    negative_prompt = request.negative_prompt or PanelGenerator(image_generator).compose_negative_prompt()
+    from backend.generator.ip_adapter_bridge import IPAdapterBridge
+    characters = [
+        story.get_character(cid)
+        for cid in panel.scripts.keys()
+        if story.get_character(cid)
+    ]
+    ip_bridge = IPAdapterBridge(content_store) if content_store else None
+    panel_gen = PanelGenerator(image_generator, ip_adapter_bridge=ip_bridge)
+    negative_prompt = request.negative_prompt or (
+        panel_gen.prompt_composer.compose_negative(panel, characters)
+    )
 
     async with _generation_lock:
         content_hash = await image_generator.inpaint(
@@ -1621,7 +1635,7 @@ async def review_panel_image(panel_id: str):
         reviewer = ImageReviewer()
         result = await reviewer.review(image_bytes, original_prompt)
     except Exception as e:
-        print(f"Review failed: {e}")
+        log.error("Review failed: %s", e)
         raise HTTPException(
             503,
             f"Review failed — ollama may be unavailable or out of memory: {e}"
@@ -1869,9 +1883,19 @@ async def generate_solo(request: SoloGenerateRequest):
     full_prompt = ", ".join(part for part in prompt_parts if part)
 
     from backend.generator.panel_generator import PanelGenerator
-    negative = request.negative_prompt or (
-        PanelGenerator(image_generator).compose_negative_prompt()
-    )
+    from backend.generator.prompt_composer import PromptComposer
+    # Use hierarchy-aware negative: story negative + character negative + default
+    solo_chapter = story.get_solo_chapter(request.character_id)
+    solo_panel = None
+    if solo_chapter and solo_chapter.pages:
+        page = solo_chapter.pages[-1]
+        if page.panels:
+            solo_panel = page.panels[-1]
+    composer = PromptComposer()
+    if solo_panel:
+        negative = request.negative_prompt or composer.compose_negative(solo_panel, [character])
+    else:
+        negative = request.negative_prompt or composer.compose_negative_fallback(story, [character])
 
     async with _generation_lock:
         content_hash = await image_generator.generate(
@@ -1996,12 +2020,6 @@ async def submit_feedback(request: FeedbackRequest):
             hidden_dim = image_generator._last_visual_latent.shape[-1]
             adv_adapter = AdversarialAdapter(hidden_dim=hidden_dim, rank=adapter.lora_rank)
             adapter._unified_trainer = UnifiedTrainer(adv_adapter)
-            # Keep legacy reference
-            adapter._adversarial_trainer = type('', (), {
-                'pair_count': lambda self: adapter._unified_trainer.pair_count(),
-                'adapter': adv_adapter,
-                'train': lambda self, **kw: [],
-            })()
 
         if image_generator._last_language_latent is not None:
             vis = image_generator._last_visual_latent
@@ -2038,8 +2056,8 @@ async def submit_feedback(request: FeedbackRequest):
         "positive_count": len(adapter.positive_samples()),
         "negative_count": len(adapter.negative_samples()),
         "adversarial_pairs": (
-            adapter._adversarial_trainer.pair_count()
-            if getattr(adapter, '_adversarial_trainer', None) else 0
+            adapter._unified_trainer.pair_count()
+            if getattr(adapter, '_unified_trainer', None) else 0
         ),
     }
 
@@ -2095,7 +2113,7 @@ async def train_adapter(request: TrainRequest = TrainRequest()):
         if unreviewed and content_store:
             from backend.generator.latent_reviewer import LatentReviewer
             reviewer = LatentReviewer()
-            print(f"Auto-reviewing {len(unreviewed)} pairs...")
+            log.info("Auto-reviewing %d pairs...", len(unreviewed))
             for pair in unreviewed:
                 # Find the panel to get image bytes and context
                 panel = None
@@ -2108,8 +2126,8 @@ async def train_adapter(request: TrainRequest = TrainRequest()):
                                     meta = content_store.get_meta(
                                         pan.image_hash
                                     )
-                                    if (meta and meta.metadata and
-                                            meta.metadata.get("prompt")
+                                    if (meta and meta.metadata
+                                            and meta.metadata.get("prompt")
                                             == pair.prompt_used):
                                         panel = pan
                                         break
@@ -2137,7 +2155,7 @@ async def train_adapter(request: TrainRequest = TrainRequest()):
             reviewed_count = sum(
                 1 for p in trainer.pairs if p.image_embedding is not None
             )
-            print(f"Reviewed: {reviewed_count}/{len(trainer.pairs)} pairs")
+            log.info("Reviewed: %d/%d pairs", reviewed_count, len(trainer.pairs))
 
     async with _generation_lock:
         adv_hash = None
@@ -2159,14 +2177,12 @@ async def train_adapter(request: TrainRequest = TrainRequest()):
                 )
                 last = results[-1] if results else None
                 if last:
-                    print(
-                        f"Unified adapter trained: "
-                        f"vis={last.visual_loss:.4f} "
-                        f"lang={last.language_loss:.4f} "
-                        f"review={last.review_loss:.4f} "
-                        f"align={last.alignment:.4f} "
-                        f"pairs={trainer.pair_count()} "
-                        f"reviewed={trainer.reviewed_pair_count()}"
+                    log.info(
+                        "Unified adapter trained: vis=%.4f lang=%.4f "
+                        "review=%.4f align=%.4f pairs=%d reviewed=%d",
+                        last.visual_loss, last.language_loss,
+                        last.review_loss, last.alignment,
+                        trainer.pair_count(), trainer.reviewed_pair_count(),
                     )
 
                 # Load trained weights into pipeline as LoRA
@@ -2175,9 +2191,9 @@ async def train_adapter(request: TrainRequest = TrainRequest()):
                         from backend.generator.lora_bridge import LoraBridge
                         bridge = LoraBridge(trainer.adapter)
                         bridge.load_into_pipeline(image_generator.pipeline)
-                        print("LoRA weights loaded into pipeline")
+                        log.info("LoRA weights loaded into pipeline")
                     except Exception as e:
-                        print(f"Failed to load LoRA weights: {e}")
+                        log.warning("Failed to load LoRA weights: %s", e)
 
     last_result = results[-1] if results else None
     return {
@@ -2202,28 +2218,53 @@ async def train_adapter(request: TrainRequest = TrainRequest()):
 
 @router.get("/api/models")
 async def list_models():
-    """List available image generation models."""
+    """List available image generation models (built-in + local checkpoints)."""
     from backend.generator.image_generator import AVAILABLE_MODELS
+    models = dict(AVAILABLE_MODELS)
+
+    # Add local checkpoints from data/checkpoints/
+    for path in CHECKPOINT_DIR.glob("*.safetensors"):
+        key = f"local:{path.stem}"
+        models[key] = {
+            "id": str(path),
+            "name": path.stem,
+            "description": f"Local checkpoint ({round(path.stat().st_size / (1024 * 1024))}MB)",
+            "tags": ["local", "custom"],
+        }
+
     current = image_generator.model_id if image_generator else None
     return {
-        "models": AVAILABLE_MODELS,
+        "models": models,
         "current": current,
     }
 
 
-@router.post("/api/models/{model_key}")
+@router.post("/api/models/{model_key:path}")
 async def switch_model(model_key: str):
     """Switch to a different image generation model. Downloads on first use."""
     from backend.generator.image_generator import AVAILABLE_MODELS
-    if model_key not in AVAILABLE_MODELS:
+
+    # Check built-in models first, then local checkpoints
+    if model_key in AVAILABLE_MODELS:
+        model_info = AVAILABLE_MODELS[model_key]
+    elif model_key.startswith("local:"):
+        stem = model_key[len("local:"):]
+        checkpoint_path = CHECKPOINT_DIR / f"{stem}.safetensors"
+        if not checkpoint_path.exists():
+            raise HTTPException(404, f"Local checkpoint '{stem}' not found")
+        model_info = {
+            "id": str(checkpoint_path),
+            "name": stem,
+        }
+    else:
         raise HTTPException(404, f"Model '{model_key}' not found. Available: {list(AVAILABLE_MODELS.keys())}")
+
     if not image_generator:
         raise HTTPException(503, "Image generator not initialized")
 
     if _generation_lock.locked():
         raise HTTPException(429, "Generation in progress, cannot switch models now")
 
-    model_info = AVAILABLE_MODELS[model_key]
     async with _generation_lock:
         try:
             image_generator.load_model(model_info["id"])

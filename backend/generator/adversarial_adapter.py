@@ -16,9 +16,12 @@ No pixels, no text, no disk — latents flow directly between adapters.
 """
 from __future__ import annotations
 
+import logging
 import torch
 import torch.nn as nn
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 
 class AdversarialAdapter(nn.Module):
@@ -246,7 +249,7 @@ class AdversarialTrainer:
 
             avg = epoch_loss / len(self.pairs)
             total_loss += avg
-            print(f"  Adversarial epoch {epoch + 1}/{epochs}, loss: {avg:.4f}")
+            log.debug("  Adversarial epoch %d/%d, loss: %.4f", epoch + 1, epochs, avg)
 
         self.adapter.eval()
         return total_loss / epochs

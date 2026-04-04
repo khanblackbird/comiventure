@@ -14,13 +14,288 @@
 
 set -e
 
-# Check if containers are already running and stop them
+# ---------------------------------------------------------------------------
+# Colors / helpers
+# ---------------------------------------------------------------------------
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+info()  { echo -e "${GREEN}[OK]${NC}  $*"; }
+warn()  { echo -e "${YELLOW}[!!]${NC}  $*"; }
+fail()  { echo -e "${RED}[FAIL]${NC} $*"; }
+step()  { echo -e "\n--- $* ---"; }
+
+# ---------------------------------------------------------------------------
+# System checks
+# ---------------------------------------------------------------------------
+
+check_docker() {
+    if ! sudo docker info &>/dev/null; then
+        fail "Docker daemon is not running"
+        echo "     Try: sudo systemctl start docker"
+        exit 1
+    fi
+    info "Docker daemon running"
+}
+
+check_nvidia_driver() {
+    if ! command -v nvidia-smi &>/dev/null; then
+        warn "nvidia-smi not found — no NVIDIA driver installed"
+        warn "Image generation will be disabled"
+        return 1
+    fi
+    if ! nvidia-smi &>/dev/null; then
+        warn "nvidia-smi failed — GPU may be in a bad state"
+        warn "Try: sudo nvidia-smi -r (reset) or reboot"
+        return 1
+    fi
+    local gpu_name
+    gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+    info "NVIDIA driver OK ($gpu_name)"
+    return 0
+}
+
+check_swap() {
+    local swap_total
+    swap_total=$(awk '/SwapTotal/{print $2}' /proc/meminfo)
+    if [ "$swap_total" -eq 0 ] 2>/dev/null; then
+        warn "No swap space — SDXL generation may OOM"
+        if [ -f /swapfile ]; then
+            echo "     Swap file exists but not active — activating..."
+            sudo swapon /swapfile 2>/dev/null && info "Swap activated" || warn "Failed to activate /swapfile"
+        else
+            echo "     Creating 16G swap file..."
+            sudo fallocate -l 16G /swapfile && \
+            sudo chmod 600 /swapfile && \
+            sudo mkswap /swapfile && \
+            sudo swapon /swapfile && \
+            info "16G swap activated"
+            if ! grep -q '/swapfile' /etc/fstab 2>/dev/null; then
+                echo '/swapfile none swap defaults 0 0' | sudo tee -a /etc/fstab > /dev/null
+                echo "     Added swap to /etc/fstab"
+            fi
+        fi
+    else
+        local swap_mb=$((swap_total / 1024))
+        info "Swap available (${swap_mb}M)"
+    fi
+}
+
+check_disk() {
+    local free_kb
+    free_kb=$(df --output=avail / 2>/dev/null | tail -1 | tr -d ' ')
+    if [ -z "$free_kb" ]; then
+        return
+    fi
+    local free_gb=$((free_kb / 1024 / 1024))
+    if [ "$free_gb" -lt 20 ]; then
+        warn "Low disk space: ${free_gb}GB free — model downloads may fail (need ~20GB)"
+    else
+        info "Disk space OK (${free_gb}GB free)"
+    fi
+}
+
+check_ollama_installed() {
+    if command -v ollama &>/dev/null; then
+        if systemctl is-active --quiet ollama 2>/dev/null; then
+            info "Ollama service running"
+        elif pgrep -x ollama &>/dev/null; then
+            info "Ollama process running"
+        else
+            warn "Ollama installed but not running — try: ollama serve"
+        fi
+    else
+        warn "Ollama not installed — character chat and LLM features will not work"
+        echo "     Install: curl -fsSL https://ollama.com/install.sh | sh"
+    fi
+}
+
+check_gpu() {
+    # Skip if no driver on host
+    if ! command -v nvidia-smi &>/dev/null || ! nvidia-smi &>/dev/null; then
+        return
+    fi
+
+    local result
+    result=$(sudo docker run --rm --gpus all nvidia/cuda:12.8.0-runtime-ubuntu22.04 \
+        nvidia-smi --query-gpu=name --format=csv,noheader 2>&1)
+    local rc=$?
+
+    if [ $rc -ne 0 ]; then
+        warn "CUDA not working inside containers"
+        echo "     This is usually a nvidia-container-toolkit / driver mismatch."
+        echo "     Checking if privileged mode helps..."
+
+        result=$(sudo docker run --rm --gpus all --privileged nvidia/cuda:12.8.0-runtime-ubuntu22.04 \
+            nvidia-smi --query-gpu=name --format=csv,noheader 2>&1)
+        rc=$?
+
+        if [ $rc -eq 0 ]; then
+            if ! grep -q "privileged: true" docker-compose.yml; then
+                echo "     Fix: adding 'privileged: true' to docker-compose.yml"
+                sed -i '/^  app:/a\    privileged: true' docker-compose.yml
+            else
+                info "privileged: true already set — should be fine"
+            fi
+        else
+            fail "CUDA fails even with privileged mode"
+            echo "     Try: sudo systemctl restart docker, or reboot"
+            echo "     Image generation will be disabled"
+        fi
+    else
+        info "CUDA OK inside containers ($result)"
+        # CUDA works without privileged — remove workaround if present
+        if grep -q "privileged: true" docker-compose.yml; then
+            echo "     CUDA working without privileged mode — removing workaround"
+            sed -i '/^    privileged: true$/d' docker-compose.yml
+        fi
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Build check
+# ---------------------------------------------------------------------------
+
+maybe_rebuild() {
+    local image_id
+    image_id=$(sudo docker images -q comiventure-app 2>/dev/null)
+    if [ -z "$image_id" ]; then
+        echo "No existing image — building..."
+        sudo docker compose build app
+        return
+    fi
+
+    local image_created
+    image_created=$(sudo docker inspect -f '{{.Created}}' "$image_id" 2>/dev/null)
+    image_ts=$(date -d "$image_created" +%s 2>/dev/null || echo 0)
+
+    local needs_rebuild=false
+    for f in Dockerfile requirements.txt; do
+        if [ -f "$f" ]; then
+            file_ts=$(stat -c %Y "$f" 2>/dev/null || echo 0)
+            if [ "$file_ts" -gt "$image_ts" ]; then
+                needs_rebuild=true
+                echo "Detected change: $f"
+            fi
+        fi
+    done
+
+    if [ "$needs_rebuild" = true ]; then
+        echo "Rebuilding app image..."
+        sudo docker compose build app
+    else
+        info "Image up to date"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Git integration
+# ---------------------------------------------------------------------------
+
+check_git() {
+    if ! command -v git &>/dev/null || ! git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
+        return
+    fi
+
+    local branch
+    branch=$(git branch --show-current 2>/dev/null)
+    info "Branch: ${branch:-detached}"
+
+    if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+        warn "Uncommitted changes present"
+    else
+        info "Working tree clean"
+    fi
+
+    # Fetch and check for upstream changes
+    git fetch --quiet 2>/dev/null || true
+    local behind
+    behind=$(git rev-list --count HEAD..@{u} 2>/dev/null || echo 0)
+    if [ "$behind" -gt 0 ]; then
+        warn "Branch is $behind commit(s) behind upstream"
+        if git diff --quiet 2>/dev/null && git diff --cached --quiet 2>/dev/null; then
+            echo "     Working tree is clean — pulling..."
+            git pull --ff-only 2>/dev/null && info "Pulled $behind commit(s)" \
+                || warn "Fast-forward pull failed — manual merge needed"
+        else
+            warn "Cannot auto-pull with uncommitted changes"
+        fi
+    else
+        info "Up to date with upstream"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Health checks after startup
+# ---------------------------------------------------------------------------
+
+wait_for_server() {
+    step "Waiting for server on port 8000"
+    local elapsed=0
+    while [ $elapsed -lt 30 ]; do
+        if curl -sf http://localhost:8000/ -o /dev/null 2>/dev/null; then
+            info "Server ready (${elapsed}s)"
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    fail "Server failed to start within 30 seconds"
+    return 1
+}
+
+check_ollama() {
+    if curl -sf http://localhost:11434/ -o /dev/null 2>/dev/null; then
+        info "Ollama reachable on port 11434"
+    else
+        warn "Ollama not reachable on port 11434 — LLM features may not work"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Container management
+# ---------------------------------------------------------------------------
+
 ensure_clean() {
     if sudo docker compose ps --status running 2>/dev/null | grep -q "app"; then
         echo "Server already running — stopping..."
         sudo docker compose down
     fi
 }
+
+# ---------------------------------------------------------------------------
+# Startup sequence (shared between default and proxy modes)
+# ---------------------------------------------------------------------------
+
+run_preflight() {
+    step "System checks"
+    check_docker
+    check_nvidia_driver || true
+    check_disk
+    check_swap
+    check_ollama_installed
+    check_gpu
+
+    step "Git status"
+    check_git
+
+    step "Build"
+    maybe_rebuild
+}
+
+run_post_startup() {
+    wait_for_server || true
+
+    step "Connection checks"
+    check_ollama
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
 
 case "${1:-}" in
     proxy)
@@ -31,15 +306,20 @@ case "${1:-}" in
         sleep 1
 
         if ss -tln | grep -q ':40000'; then
-            echo "WARP proxy running on localhost:40000"
+            info "WARP proxy running on localhost:40000"
             export CIVITAI_PROXY=socks5://127.0.0.1:40000
         else
-            echo "Warning: WARP proxy not detected on port 40000"
-            echo "Civitai browser will not work"
+            warn "WARP proxy not detected on port 40000"
+            echo "     Civitai browser will not work"
         fi
 
-        echo "Starting server with proxy..."
+        run_preflight
+
+        step "Starting server with proxy"
         sudo CIVITAI_PROXY="$CIVITAI_PROXY" docker compose up -d
+
+        run_post_startup
+
         echo ""
         echo "Server: http://localhost:8000"
         echo "Civitai: proxied through WARP"
@@ -109,9 +389,13 @@ case "${1:-}" in
 
     "")
         ensure_clean
+        run_preflight
 
-        echo "Starting server (no proxy)..."
+        step "Starting server (no proxy)"
         sudo docker compose up -d
+
+        run_post_startup
+
         echo ""
         echo "Server: http://localhost:8000"
         echo "Civitai: no proxy (may be region-blocked)"

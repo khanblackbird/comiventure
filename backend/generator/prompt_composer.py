@@ -14,8 +14,11 @@ Not → "the Disney character Goofy"
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 import httpx
+
+log = logging.getLogger(__name__)
 
 from backend.models.panel import Panel
 from backend.models.character import Character
@@ -193,7 +196,7 @@ class PromptComposer:
                             prompt = prompt[1:-1].strip()
                         return prompt
         except Exception as e:
-            print(f"LLM prompt composition failed: {e}")
+            log.warning("LLM prompt composition failed: %s", e)
 
         # Fall back to direct
         return self._compose_direct(panel, characters)
@@ -257,31 +260,34 @@ class PromptComposer:
         return ", ".join(part for part in prompt_parts if part)
 
     def _get_story_prompt(self, panel: Panel) -> str:
-        """Walk up to the Story and call its to_prompt()."""
-        node = panel
-        while node._parent is not None:
-            node = node._parent
-        if hasattr(node, 'to_prompt'):
-            return node.to_prompt()
-        return ""
+        """Get the Story's art style via get_context().
+        Falls back to Story.DEFAULT_ART_STYLE if none set.
+        """
+        context = panel.get_context()
+        story_ctx = context.get("story", {})
+        from backend.models.story import Story
+        return story_ctx.get("art_style") or Story.DEFAULT_ART_STYLE
 
     def _get_page_prompt(self, panel: Panel) -> str:
-        """Get the parent Page's to_prompt().
-        Falls back to Chapter's to_prompt() for location/time defaults.
+        """Get the parent Page's prompt via get_context().
+        Falls back to Chapter defaults for location/time.
         """
-        page_prompt = ""
-        chapter_prompt = ""
-        if panel._parent and hasattr(panel._parent, 'to_prompt'):
-            page_prompt = panel._parent.to_prompt()
-            # Chapter is page's parent
-            page = panel._parent
-            if page._parent and hasattr(page._parent, 'to_prompt'):
-                chapter_prompt = page._parent.to_prompt()
-
-        # Page prompt takes priority; chapter fills gaps
-        if page_prompt:
-            return page_prompt
-        return chapter_prompt
+        context = panel.get_context()
+        page_ctx = context.get("page", {})
+        parts = []
+        for field in ("setting", "time_of_day", "weather", "lighting", "mood", "action_context"):
+            val = page_ctx.get(field, "")
+            if val:
+                parts.append(val)
+        if parts:
+            return ", ".join(parts)
+        chapter_ctx = context.get("chapter", {})
+        ch_parts = []
+        if chapter_ctx.get("default_location"):
+            ch_parts.append(chapter_ctx["default_location"])
+        if chapter_ctx.get("default_time_of_day"):
+            ch_parts.append(chapter_ctx["default_time_of_day"])
+        return ", ".join(ch_parts)
 
     def compose_negative(
         self,
@@ -323,6 +329,42 @@ class PromptComposer:
             script = panel.get_script(character.character_id)
             if script and script.negative_prompt:
                 parts.append(script.negative_prompt)
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique_parts = []
+        for part in parts:
+            for token in part.split(', '):
+                token = token.strip()
+                if token and token not in seen:
+                    seen.add(token)
+                    unique_parts.append(token)
+
+        return ", ".join(unique_parts)
+
+    def compose_negative_fallback(
+        self,
+        story,
+        characters: list[Character],
+    ) -> str:
+        """Compose negative prompt when no panel exists in the hierarchy.
+
+        Uses story-level negative + character negatives + defaults.
+        Used by solo generation where a panel may not yet exist.
+        """
+        from backend.generator.panel_generator import DEFAULT_NEGATIVE
+
+        parts = [DEFAULT_NEGATIVE]
+
+        # Story-level negative
+        story_neg = getattr(story, 'negative_prompt', '')
+        if story_neg:
+            parts.append(story_neg)
+
+        # Character-level negatives
+        for character in characters:
+            if character.negative_prompt:
+                parts.append(character.negative_prompt)
 
         # Deduplicate while preserving order
         seen = set()

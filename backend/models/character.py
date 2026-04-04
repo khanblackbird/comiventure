@@ -129,7 +129,7 @@ class Character(Emitter):
 
     def add_reference_image(self, content_hash: str, source: str = "upload", tags: list[str] | None = None):
         """Add a visual reference image for this character."""
-        reference = self.appearance.add_reference(content_hash, source, tags)
+        reference = self.appearance.add_reference(content_hash, source=source, tags=tags)
         self.emit("character_updated", self)
         return reference
 

@@ -23,7 +23,6 @@ class Panel(Emitter):
         panel_id: str,
         image_hash: Optional[str] = None,
         video_hash: Optional[str] = None,
-        is_animated: bool = False,
         narration: str = "",
         shot_type: str = "",
     ) -> None:
@@ -31,7 +30,6 @@ class Panel(Emitter):
         self.panel_id = panel_id
         self.image_hash = image_hash
         self.video_hash = video_hash
-        self.is_animated = is_animated
         self.narration = narration
         self.shot_type = shot_type  # "wide", "medium", "close-up", "extreme close-up", "over-shoulder", "bird's eye"
         self.negative_prompt = ""  # panel-specific negative
@@ -114,10 +112,14 @@ class Panel(Emitter):
         self.source = source
         self.emit_up("panel_updated", self)
 
+    @property
+    def is_animated(self) -> bool:
+        """Panel is animated if it has a video."""
+        return self.video_hash is not None
+
     def update_video(self, video_hash: str, source: str = "ai") -> None:
         """Set the panel video hash and propagate upward."""
         self.video_hash = video_hash
-        self.is_animated = True
         self.source = source
         self.emit_up("panel_updated", self)
 

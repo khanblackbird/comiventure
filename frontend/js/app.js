@@ -265,6 +265,21 @@ class ComiventureApp {
         }
     }
 
+    async _uploadCheckpoint(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const statusEl = document.getElementById('checkpoint-actions');
+            const origHTML = statusEl.innerHTML;
+            statusEl.innerHTML = `<span class="hint">Uploading ${file.name} (${Math.round(file.size / 1024 / 1024)}MB)...</span>`;
+            await fetch('/api/checkpoints/upload', { method: 'POST', body: formData });
+            statusEl.innerHTML = origHTML;
+            this._renderModelSelector();
+        } catch (error) {
+            console.error('Checkpoint upload failed:', error);
+        }
+    }
+
     async _searchLoras() {
         const query = document.getElementById('lora-search').value.trim();
         if (!query) return;
@@ -606,6 +621,10 @@ class ComiventureApp {
             if (event.target.files[0]) await this._uploadLora(event.target.files[0]);
             event.target.value = '';
         });
+        document.getElementById('checkpoint-upload').addEventListener('change', async (event) => {
+            if (event.target.files[0]) await this._uploadCheckpoint(event.target.files[0]);
+            event.target.value = '';
+        });
         document.getElementById('btn-browse-hf').addEventListener('click', () => {
             document.getElementById('lora-browser').hidden = false;
             document.getElementById('lora-source').value = 'huggingface';
@@ -630,6 +649,7 @@ class ComiventureApp {
 
         // Character screen
         document.getElementById('btn-char-screen-back').addEventListener('click', () => this._showChapterSelect());
+        document.getElementById('btn-char-screen-panels').addEventListener('click', () => this._showApp());
         document.getElementById('btn-char-screen-add').addEventListener('click', () => this._openCharacterManager());
         document.getElementById('new-char-from-image').addEventListener('change', (event) => {
             if (event.target.files[0]) this._newCharacterFromImage(event.target.files[0]);
@@ -656,6 +676,7 @@ class ComiventureApp {
         });
         document.getElementById('btn-ref-accept').addEventListener('click', () => this._rateReference(true));
         document.getElementById('btn-ref-reject').addEventListener('click', () => this._rateReference(false));
+        document.getElementById('btn-ref-analyze').addEventListener('click', () => this._analyzeReference());
         document.getElementById('btn-ref-save').addEventListener('click', () => this._saveReferenceLabels());
         document.getElementById('btn-ref-delete').addEventListener('click', () => this._deleteReference());
         document.getElementById('btn-solo-thumbs-up').addEventListener('click', () => this._soloFeedback(true));
@@ -663,6 +684,15 @@ class ComiventureApp {
         document.getElementById('btn-solo-regenerate').addEventListener('click', () => this._soloRegenerate());
         document.getElementById('btn-edit-character-detail').addEventListener('click', () => {
             if (this._detailCharacterId) this._editCharacter(this._detailCharacterId);
+        });
+        document.getElementById('btn-analyze-fill').addEventListener('click', () => this._analyzeFillCharacter());
+        document.getElementById('btn-delete-character-detail').addEventListener('click', async () => {
+            if (this._detailCharacterId && confirm('Delete this character?')) {
+                await this._deleteCharacter(this._detailCharacterId);
+                this._detailCharacterId = null;
+                document.getElementById('char-detail-content').hidden = true;
+                document.getElementById('char-detail-empty').hidden = false;
+            }
         });
 
         // Character manager
@@ -751,6 +781,7 @@ class ComiventureApp {
         document.getElementById('btn-save').addEventListener('click', () => this._saveStory());
         document.getElementById('btn-download').addEventListener('click', () => this._downloadStory());
         document.getElementById('btn-back-to-chapters').addEventListener('click', () => this._showChapterSelect());
+        document.getElementById('btn-app-characters').addEventListener('click', () => this._showCharacterScreen());
 
         // Splash screen
         document.getElementById('btn-splash-new').addEventListener('click', () => this._newStoryAndEnter());
@@ -976,14 +1007,11 @@ class ComiventureApp {
             } else {
                 feedbackEl.setAttribute('hidden', '');
             }
-            document.getElementById('btn-thumbs-up').classList.remove('selected-up');
-            document.getElementById('btn-thumbs-down').classList.remove('selected-down');
             document.getElementById('review-result').hidden = true;
-            // Check if this panel's image already has feedback
-            if (this.selectedPanel?.image_hash && this.selectedPanel?._feedback !== undefined) {
-                document.getElementById('btn-thumbs-up').classList.toggle('selected-up', this.selectedPanel._feedback === true);
-                document.getElementById('btn-thumbs-down').classList.toggle('selected-down', this.selectedPanel._feedback === false);
-            }
+            // Restore vote state for this panel
+            const fb = this.selectedPanel?._feedback;
+            this._updateVoteButtons('btn-thumbs-up', 'btn-thumbs-down',
+                fb !== undefined ? fb : null);
             this._updateFeedbackCount();
 
             // Load negative prompt
@@ -1641,30 +1669,33 @@ class ComiventureApp {
                 panel.panel_id,
             );
 
-            // Store on panel so it persists when switching
             panel._feedback = accepted;
-
-            // Flash the button briefly to confirm, don't toggle
-            const btn = accepted
-                ? document.getElementById('btn-thumbs-up')
-                : document.getElementById('btn-thumbs-down');
-            btn.classList.add(accepted ? 'selected-up' : 'selected-down');
-            setTimeout(() => btn.classList.remove(accepted ? 'selected-up' : 'selected-down'), 500);
-
+            this._updateVoteButtons('btn-thumbs-up', 'btn-thumbs-down', accepted);
             this._updateFeedbackCount();
             document.getElementById('btn-train-adapter').disabled = !result.can_train;
 
-            console.log(`Feedback: ${accepted ? 'POSITIVE' : 'NEGATIVE'} — ${result.positive_count} up, ${result.negative_count} down`);
         } catch (error) {
             console.error('Failed to submit feedback:', error);
         }
     }
 
+    _updateVoteButtons(upId, downId, accepted) {
+        const upBtn = document.getElementById(upId);
+        const downBtn = document.getElementById(downId);
+        upBtn.classList.remove('selected-up', 'selected-down');
+        downBtn.classList.remove('selected-up', 'selected-down');
+        if (accepted === true) upBtn.classList.add('selected-up');
+        else if (accepted === false) downBtn.classList.add('selected-down');
+    }
+
     async _updateFeedbackCount() {
         try {
             const result = await api.getFeedback();
+            const text = `${result.positive_count}↑ ${result.negative_count}↓`;
             const countEl = document.getElementById('feedback-count');
-            countEl.textContent = `${result.positive_count}↑ ${result.negative_count}↓`;
+            if (countEl) countEl.textContent = text;
+            const adapterCountEl = document.getElementById('adapter-feedback-count');
+            if (adapterCountEl) adapterCountEl.textContent = text;
             document.getElementById('btn-train-adapter').disabled = !result.can_train;
         } catch (error) {
             // Silently fail — not critical
@@ -1921,6 +1952,14 @@ class ComiventureApp {
 
         const names = characterIds.map(id => this.characters[id]?.name || id).join(', ');
         console.log(`Saved panel to bank for: ${names}`);
+    }
+
+    _showApp() {
+        document.getElementById('splash').classList.add('hidden');
+        document.getElementById('chapter-select').classList.add('hidden');
+        document.getElementById('character-screen').classList.add('hidden');
+        document.getElementById('app').classList.remove('hidden');
+        this._render();
     }
 
     // --- Character screen ---
@@ -2255,50 +2294,79 @@ class ComiventureApp {
 
     _renderSoloPanelsGrid() {
         const grid = document.getElementById('solo-panels-grid');
-        grid.innerHTML = '';
 
         if (!this._soloChapter || !this._soloChapter.pages) {
             grid.innerHTML = '<span class="hint">Generate solo images to build the character sheet</span>';
             return;
         }
 
-        let hasPanels = false;
+        // Collect all panels with images
+        const panels = [];
         for (const page of this._soloChapter.pages) {
             for (const panel of page.panels || []) {
-                if (!panel.image_hash) continue;
-                hasPanels = true;
+                if (panel.image_hash) panels.push(panel);
+            }
+        }
 
-                const thumb = document.createElement('div');
-                thumb.className = 'solo-panel-thumb';
-                if (panel.panel_id === this._selectedSoloPanelId) {
-                    thumb.classList.add('selected');
+        if (panels.length === 0) {
+            grid.innerHTML = '<span class="hint">Generate solo images to build the character sheet</span>';
+            return;
+        }
+
+        // Diff against existing DOM
+        const newIds = new Set(panels.map(p => p.panel_id));
+        const existing = new Map();
+        for (const child of [...grid.children]) {
+            const id = child.dataset?.panelId;
+            if (id && newIds.has(id)) {
+                existing.set(id, child);
+            } else {
+                child.remove();
+            }
+        }
+
+        for (const panel of panels) {
+            let thumb = existing.get(panel.panel_id);
+            if (thumb) {
+                // Update selection and feedback only
+                thumb.classList.toggle('selected', panel.panel_id === this._selectedSoloPanelId);
+                let indicator = thumb.querySelector('.panel-feedback-indicator');
+                if (panel._feedback === true) {
+                    if (!indicator) { indicator = document.createElement('span'); indicator.className = 'panel-feedback-indicator'; thumb.appendChild(indicator); }
+                    indicator.textContent = '✓';
+                } else if (panel._feedback === false) {
+                    if (!indicator) { indicator = document.createElement('span'); indicator.className = 'panel-feedback-indicator'; thumb.appendChild(indicator); }
+                    indicator.textContent = '✗';
+                } else if (indicator) {
+                    indicator.remove();
                 }
+            } else {
+                thumb = document.createElement('div');
+                thumb.className = 'solo-panel-thumb';
+                thumb.dataset.panelId = panel.panel_id;
+                if (panel.panel_id === this._selectedSoloPanelId) thumb.classList.add('selected');
 
                 const img = document.createElement('img');
                 img.src = api.contentUrl(panel.image_hash);
                 img.alt = 'Solo panel';
+                img.loading = 'lazy';
                 thumb.appendChild(img);
 
-                // Show feedback indicator
                 if (panel._feedback === true) {
                     const indicator = document.createElement('span');
                     indicator.className = 'panel-feedback-indicator';
-                    indicator.textContent = '\u{1F44D}';
+                    indicator.textContent = '✓';
                     thumb.appendChild(indicator);
                 } else if (panel._feedback === false) {
                     const indicator = document.createElement('span');
                     indicator.className = 'panel-feedback-indicator';
-                    indicator.textContent = '\u{1F44E}';
+                    indicator.textContent = '✗';
                     thumb.appendChild(indicator);
                 }
 
                 thumb.addEventListener('click', () => this._selectSoloPanel(panel));
                 grid.appendChild(thumb);
             }
-        }
-
-        if (!hasPanels) {
-            grid.innerHTML = '<span class="hint">Generate solo images to build the character sheet</span>';
         }
     }
 
@@ -2308,6 +2376,10 @@ class ComiventureApp {
 
         // Show feedback controls
         document.getElementById('solo-panel-feedback').hidden = false;
+
+        // Restore vote state
+        this._updateVoteButtons('btn-solo-thumbs-up', 'btn-solo-thumbs-down',
+            panel._feedback !== undefined ? panel._feedback : null);
 
         // Update grid selection
         this._renderSoloPanelsGrid();
@@ -2327,6 +2399,7 @@ class ComiventureApp {
                 this._selectedSoloPanel.panel_id,
             );
             this._selectedSoloPanel._feedback = accepted;
+            this._updateVoteButtons('btn-solo-thumbs-up', 'btn-solo-thumbs-down', accepted);
             this._renderSoloPanelsGrid();
         } catch (error) {
             console.error('Solo feedback failed:', error);
@@ -2359,7 +2432,6 @@ class ComiventureApp {
     _renderReferenceGrid() {
         const character = this.characters[this._detailCharacterId];
         const grid = document.getElementById('reference-grid');
-        grid.innerHTML = '';
 
         const refs = character?.appearance?.references || [];
         if (refs.length === 0) {
@@ -2367,25 +2439,48 @@ class ComiventureApp {
             return;
         }
 
+        // Build a set of current hashes for diffing
+        const newHashes = new Set(refs.map(r => r.content_hash));
+        const existing = new Map();
+        for (const child of [...grid.children]) {
+            const hash = child.dataset?.hash;
+            if (hash && newHashes.has(hash)) {
+                existing.set(hash, child);
+            } else {
+                child.remove();
+            }
+        }
+
         for (const ref of refs) {
-            const thumb = document.createElement('div');
-            thumb.className = 'reference-thumb';
-            if (ref.accepted === true) thumb.classList.add('accepted');
-            else if (ref.accepted === false) thumb.classList.add('rejected');
-            else thumb.classList.add('unrated');
+            let thumb = existing.get(ref.content_hash);
+            if (thumb) {
+                // Update status classes only
+                thumb.classList.remove('accepted', 'rejected', 'unrated');
+                if (ref.accepted === true) thumb.classList.add('accepted');
+                else if (ref.accepted === false) thumb.classList.add('rejected');
+                else thumb.classList.add('unrated');
+            } else {
+                thumb = document.createElement('div');
+                thumb.className = 'reference-thumb';
+                thumb.dataset.hash = ref.content_hash;
+                if (ref.accepted === true) thumb.classList.add('accepted');
+                else if (ref.accepted === false) thumb.classList.add('rejected');
+                else thumb.classList.add('unrated');
 
-            const img = document.createElement('img');
-            img.src = api.contentUrl(ref.content_hash);
-            img.alt = ref.caption || 'Reference';
-            thumb.appendChild(img);
+                const img = document.createElement('img');
+                img.src = api.contentUrl(ref.content_hash);
+                img.alt = ref.caption || 'Reference';
+                img.loading = 'lazy';
+                thumb.appendChild(img);
 
-            const source = document.createElement('span');
-            source.className = 'ref-source';
-            source.textContent = ref.source;
-            thumb.appendChild(source);
+                const source = document.createElement('span');
+                source.className = 'ref-source';
+                source.textContent = ref.source;
+                thumb.appendChild(source);
 
-            thumb.addEventListener('click', () => this._selectReference(ref));
-            grid.appendChild(thumb);
+                thumb.addEventListener('click', () => this._selectReference(ref));
+                grid.appendChild(thumb);
+            }
         }
     }
 
@@ -2568,35 +2663,134 @@ class ComiventureApp {
             await this._reloadCharacter(this._detailCharacterId);
             this._renderReferenceGrid();
 
-            // Store for Apply
+            // Store for Apply and show editable results
             this._pendingAnalysis = result;
-
-            // Display results
-            captionEl.textContent = result.raw_caption;
-
-            // Character fields
-            charFieldsEl.innerHTML = '<h5>Character</h5>';
-            for (const [key, value] of Object.entries(result.character)) {
-                if (!value) continue;
-                const row = document.createElement('div');
-                row.className = 'analysis-field';
-                row.innerHTML = `<strong>${key.replace(/_/g, ' ')}:</strong> ${value}`;
-                charFieldsEl.appendChild(row);
-            }
-
-            // Art style fields
-            artFieldsEl.innerHTML = '<h5>Art Style</h5>';
-            for (const [key, value] of Object.entries(result.art_style)) {
-                if (!value) continue;
-                const row = document.createElement('div');
-                row.className = 'analysis-field';
-                row.innerHTML = `<strong>${key.replace(/_/g, ' ')}:</strong> ${value}`;
-                artFieldsEl.appendChild(row);
-            }
+            this._showAnalysisResult(result);
 
         } catch (error) {
             console.error('Upload and analyze failed:', error);
             captionEl.textContent = 'Analysis failed — is Ollama running with LLaVA?';
+        }
+    }
+
+    async _analyzeReference() {
+        if (!this._detailCharacterId || !this._selectedRefHash) return;
+
+        const analyzeBtn = document.getElementById('btn-ref-analyze');
+        analyzeBtn.disabled = true;
+        analyzeBtn.textContent = 'Analyzing...';
+
+        try {
+            const result = await api._post(
+                `/api/characters/${this._detailCharacterId}/analyze-reference/${this._selectedRefHash}`
+            );
+
+            // Auto-fill reference editor fields from analysis
+            const ref = document.getElementById('ref-caption');
+            const pose = document.getElementById('ref-pose');
+            const expr = document.getElementById('ref-expression');
+            const outfit = document.getElementById('ref-outfit');
+
+            if (result.raw_caption && !ref.value) ref.value = result.raw_caption;
+            if (result.character.pose && !pose.value) pose.value = result.character.pose;
+            if (result.character.expression && !expr.value) expr.value = result.character.expression;
+            if (result.character.outfit && !outfit.value) outfit.value = result.character.outfit;
+
+            // Also show full analysis so user can apply to character
+            this._pendingAnalysis = result;
+            this._showAnalysisResult(result);
+
+        } catch (error) {
+            console.error('Analyze reference failed:', error);
+        } finally {
+            analyzeBtn.disabled = false;
+            analyzeBtn.textContent = 'Analyze';
+        }
+    }
+
+    async _analyzeFillCharacter() {
+        if (!this._detailCharacterId) return;
+
+        const character = this.characters[this._detailCharacterId];
+        if (!character) return;
+
+        // Find the best reference to analyze: first accepted, or first available
+        const refs = character.appearance?.references || [];
+        const ref = refs.find(r => r.accepted === true) || refs[0];
+        if (!ref) {
+            alert('No reference images to analyze. Upload one first.');
+            return;
+        }
+
+        const btn = document.getElementById('btn-analyze-fill');
+        btn.disabled = true;
+        btn.textContent = 'Analyzing...';
+
+        try {
+            const result = await api._post(
+                `/api/characters/${this._detailCharacterId}/analyze-reference/${ref.content_hash}`
+            );
+
+            this._pendingAnalysis = result;
+            this._showAnalysisResult(result);
+
+        } catch (error) {
+            console.error('Analyze & fill failed:', error);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Analyze & Fill';
+        }
+    }
+
+    _showAnalysisResult(result) {
+        const analysisEl = document.getElementById('analysis-result');
+        const captionEl = document.getElementById('analysis-caption');
+        const charFieldsEl = document.getElementById('analysis-character-fields');
+        const artFieldsEl = document.getElementById('analysis-art-style-fields');
+
+        analysisEl.hidden = false;
+        captionEl.textContent = result.raw_caption;
+
+        // Editable character fields
+        charFieldsEl.innerHTML = '<h5>Character</h5>';
+        for (const [key, value] of Object.entries(result.character)) {
+            if (!value) continue;
+            const row = document.createElement('div');
+            row.className = 'analysis-field';
+            const label = document.createElement('strong');
+            label.textContent = key.replace(/_/g, ' ') + ': ';
+            row.appendChild(label);
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'appearance-input';
+            input.value = value;
+            input.dataset.analysisKey = key;
+            input.dataset.analysisType = 'character';
+            input.addEventListener('change', () => {
+                if (this._pendingAnalysis) this._pendingAnalysis.character[key] = input.value;
+            });
+            row.appendChild(input);
+            charFieldsEl.appendChild(row);
+        }
+
+        // Editable art style fields
+        artFieldsEl.innerHTML = '<h5>Art Style</h5>';
+        for (const [key, value] of Object.entries(result.art_style)) {
+            if (!value) continue;
+            const row = document.createElement('div');
+            row.className = 'analysis-field';
+            const label = document.createElement('strong');
+            label.textContent = key.replace(/_/g, ' ') + ': ';
+            row.appendChild(label);
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'appearance-input';
+            input.value = value;
+            input.addEventListener('change', () => {
+                if (this._pendingAnalysis) this._pendingAnalysis.art_style[key] = input.value;
+            });
+            row.appendChild(input);
+            artFieldsEl.appendChild(row);
         }
     }
 
@@ -2616,6 +2810,14 @@ class ComiventureApp {
                 }
             );
 
+            // Update local state directly from the response
+            const character = this.characters[this._detailCharacterId];
+            if (character && result.character) {
+                if (!character.appearance) character.appearance = {};
+                character.appearance.properties = result.character;
+            }
+
+            // Also reload to get full state (references etc)
             await this._reloadCharacter(this._detailCharacterId);
             this._renderCharacterDetail();
 

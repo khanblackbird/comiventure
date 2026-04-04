@@ -74,6 +74,35 @@ class LoraBridge:
 
         return state_dict
 
+    def _project_weights(
+        self,
+        down_weight: torch.Tensor,
+        up_weight: torch.Tensor,
+        target_dim: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Project adapter weights to match a target layer dimension.
+
+        The adapter trains in latent space (hidden_dim) but UNet layers
+        have different dimensions. We pad or truncate to fit, preserving
+        the learned low-rank structure.
+        """
+        rank = down_weight.shape[0]
+        adapter_dim = down_weight.shape[1]
+
+        if adapter_dim == target_dim:
+            return down_weight, up_weight
+
+        # Create properly sized matrices
+        new_down = torch.zeros(rank, target_dim, device=down_weight.device)
+        new_up = torch.zeros(target_dim, rank, device=up_weight.device)
+
+        # Copy what fits, truncate or zero-pad
+        copy_dim = min(adapter_dim, target_dim)
+        new_down[:, :copy_dim] = down_weight[:, :copy_dim]
+        new_up[:copy_dim, :] = up_weight[:copy_dim, :]
+
+        return new_down, new_up
+
     def _collect_unet_keys(
         self,
         unet,
@@ -82,9 +111,7 @@ class LoraBridge:
         up_weight: torch.Tensor,
         state_dict: dict,
     ) -> None:
-        """Enumerate UNet attention layers and add matching LoRA keys."""
-        hidden_dim = self.adapter.hidden_dim
-
+        """Enumerate UNet attention layers and add LoRA keys."""
         for module_name, module in unet.named_modules():
             for target in UNET_ATTN_TARGETS:
                 layer = getattr(module, target, None)
@@ -92,17 +119,18 @@ class LoraBridge:
                     continue
                 if not hasattr(layer, "in_features"):
                     continue
-                if layer.in_features != hidden_dim:
-                    continue
+
+                dim = layer.in_features
+                down, up = self._project_weights(
+                    down_weight, up_weight, dim,
+                )
 
                 prefix = f"unet.{module_name}.{target}"
-                # lora_down: [rank, hidden_dim] — A matrix scaled by gate
                 state_dict[f"{prefix}.lora_down.weight"] = (
-                    down_weight.clone() * gate_scale
+                    down.clone() * gate_scale
                 )
-                # lora_up: [hidden_dim, rank] — B matrix
                 state_dict[f"{prefix}.lora_up.weight"] = (
-                    up_weight.clone()
+                    up.clone()
                 )
 
     def _collect_text_encoder_keys(
@@ -113,9 +141,7 @@ class LoraBridge:
         up_weight: torch.Tensor,
         state_dict: dict,
     ) -> None:
-        """Enumerate text encoder attention layers and add matching LoRA keys."""
-        hidden_dim = self.adapter.hidden_dim
-
+        """Enumerate text encoder attention layers and add LoRA keys."""
         for module_name, module in text_encoder.named_modules():
             for target in TEXT_ENCODER_ATTN_TARGETS:
                 layer = getattr(module, target, None)
@@ -123,15 +149,18 @@ class LoraBridge:
                     continue
                 if not hasattr(layer, "in_features"):
                     continue
-                if layer.in_features != hidden_dim:
-                    continue
+
+                dim = layer.in_features
+                down, up = self._project_weights(
+                    down_weight, up_weight, dim,
+                )
 
                 prefix = f"text_encoder.{module_name}.{target}"
                 state_dict[f"{prefix}.lora_down.weight"] = (
-                    down_weight.clone() * gate_scale
+                    down.clone() * gate_scale
                 )
                 state_dict[f"{prefix}.lora_up.weight"] = (
-                    up_weight.clone()
+                    up.clone()
                 )
 
     def save_safetensors(self, pipeline) -> bytes:

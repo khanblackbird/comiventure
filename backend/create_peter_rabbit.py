@@ -27,7 +27,8 @@ def create_peter_rabbit():
 
     # === Characters ===
 
-    peter = Character("peter", "Peter Rabbit",
+    peter = Character(
+        "peter", "Peter Rabbit",
         description="A naughty, curious young rabbit who can't resist adventure.",
         personality_prompt="curious, naughty, impulsive, brave but easily frightened",
     )
@@ -68,7 +69,8 @@ def create_peter_rabbit():
     }
     story.add_character(peter)
 
-    mrs_rabbit = Character("mrs-rabbit", "Mrs. Rabbit",
+    mrs_rabbit = Character(
+        "mrs-rabbit", "Mrs. Rabbit",
         description="Peter's mother. Sensible, caring, warns her children about danger.",
         personality_prompt="caring, sensible, maternal, firm but loving",
     )
@@ -91,7 +93,8 @@ def create_peter_rabbit():
     mrs_rabbit.profile.add_outfit("apron", "neat apron, carries a basket and umbrella", is_default=True)
     story.add_character(mrs_rabbit)
 
-    mcgregor = Character("mcgregor", "Mr. McGregor",
+    mcgregor = Character(
+        "mcgregor", "Mr. McGregor",
         description="A grumpy old gardener who chases rabbits out of his garden.",
         personality_prompt="grumpy, determined, territorial about his garden",
     )
@@ -119,7 +122,8 @@ def create_peter_rabbit():
     story.add_character(mcgregor)
 
     # === Chapter 1: The Warning ===
-    ch1 = story.create_chapter("The Warning", ["peter", "mrs-rabbit"],
+    ch1 = story.create_chapter(
+        "The Warning", ["peter", "mrs-rabbit"],
         synopsis="Mrs. Rabbit warns her children not to go into Mr. McGregor's garden.",
         default_location="rabbit burrow under a big fir tree",
         default_time_of_day="morning",
@@ -184,7 +188,8 @@ def create_peter_rabbit():
     )
 
     # === Chapter 2: The Garden ===
-    ch2 = story.create_chapter("The Garden", ["peter", "mcgregor"],
+    ch2 = story.create_chapter(
+        "The Garden", ["peter", "mcgregor"],
         synopsis="Peter explores Mr. McGregor's garden and gets caught.",
         default_location="Mr. McGregor's vegetable garden",
         default_time_of_day="midday",
@@ -287,7 +292,8 @@ def create_peter_rabbit():
     )
 
     # === Chapter 3: Home Safe ===
-    ch3 = story.create_chapter("Home Safe", ["peter", "mrs-rabbit"],
+    ch3 = story.create_chapter(
+        "Home Safe", ["peter", "mrs-rabbit"],
         synopsis="Peter escapes and returns home, sick and sorry.",
         default_location="rabbit burrow",
         default_time_of_day="evening",

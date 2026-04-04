@@ -1,12 +1,14 @@
 services:
   app:
     build: .
+    privileged: true
     volumes:
       - ./backend:/app/backend
       - ./frontend:/app/frontend
       - ./tests:/app/tests
       - model_cache:/app/data/models
       - content_data:/app/data/content
+      - checkpoint_data:/app/data/checkpoints
     network_mode: host
     environment:
       - OLLAMA_HOST=http://127.0.0.1:11434
@@ -37,4 +39,5 @@ services:
 volumes:
   model_cache:
   content_data:
+  checkpoint_data:
   ollama_data:

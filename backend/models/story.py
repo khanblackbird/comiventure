@@ -10,6 +10,9 @@ from .panel import Panel
 from .script import Script
 from .ids import make_id
 
+import logging
+log = logging.getLogger(__name__)
+
 
 class Story(Emitter):
     """The top-level story container.
@@ -111,25 +114,40 @@ class Story(Emitter):
 
     def remove_character(self, character_id: str) -> None:
         """Remove a character from the story.
-        Cascades: removes their scripts from all panels, unbinds from all chapters.
+        Cascades: removes solo chapters, scripts from all panels,
+        and unbinds from all chapters.
         """
         if character_id not in self.characters:
             return
 
-        # Remove scripts from all panels
-        for chapter in self.chapters.values():
-            if character_id in chapter.character_ids:
-                chapter.unbind_character(character_id)
+        # Remove solo chapters FIRST (before unbinding empties character_ids)
+        solo_ids = [
+            cid for cid, ch in self.chapters.items()
+            if ch.is_solo
+            and len(ch.character_ids) == 1
+            and ch.character_ids[0] == character_id
+        ]
+        for solo_id in solo_ids:
+            solo = self.chapters[solo_id]
+            for page in solo.pages:
+                for panel in page.panels:
+                    for script in panel.scripts.values():
+                        self.unregister(script.script_id)
+            self.unregister(solo_id)
+            del self.chapters[solo_id]
+
+        # Remove scripts and unbind from remaining chapters
+        for chapter_id, chapter in list(self.chapters.items()):
             for page in chapter.pages:
                 for panel in page.panels:
                     if character_id in panel.scripts:
-                        # Only remove if panel has other scripts (don't break chain)
-                        if len(panel.scripts) > 1:
-                            script = panel.scripts[character_id]
-                            self.unregister(script.script_id)
-                            del panel.scripts[character_id]
+                        script = panel.scripts[character_id]
+                        self.unregister(script.script_id)
+                        del panel.scripts[character_id]
+            if character_id in chapter.character_ids:
+                chapter.unbind_character(character_id)
 
-        # Remove character's chapters reference
+        # Remove character
         character = self.characters[character_id]
         character.chapters = []
 
@@ -323,6 +341,54 @@ class Story(Emitter):
                             )
 
         return errors
+
+    def repair(self) -> list[str]:
+        """Fix integrity violations. Returns list of repairs made."""
+        repairs = []
+
+        # Remove scripts referencing nonexistent characters
+        for chapter in list(self.chapters.values()):
+            for page in chapter.pages:
+                for panel in page.panels:
+                    orphan_ids = [
+                        cid for cid in panel.scripts
+                        if cid not in self.characters
+                    ]
+                    for cid in orphan_ids:
+                        script = panel.scripts[cid]
+                        self.unregister(script.script_id)
+                        del panel.scripts[cid]
+                        repairs.append(f"Removed orphaned script for '{cid}' in panel '{panel.panel_id}'")
+
+        # Clean up chapter character_ids that reference nonexistent characters
+        for chapter in self.chapters.values():
+            bad_ids = [cid for cid in chapter.character_ids if cid not in self.characters]
+            for cid in bad_ids:
+                chapter.character_ids.remove(cid)
+                repairs.append(f"Removed nonexistent character '{cid}' from chapter '{chapter.chapter_id}'")
+
+        # Remove chapters with no characters (orphaned solo chapters)
+        empty_chapters = [
+            cid for cid, ch in self.chapters.items()
+            if len(ch.character_ids) == 0
+        ]
+        for cid in empty_chapters:
+            ch = self.chapters[cid]
+            for page in ch.pages:
+                for panel in page.panels:
+                    for script in panel.scripts.values():
+                        self.unregister(script.script_id)
+            self.unregister(cid)
+            del self.chapters[cid]
+            repairs.append(f"Removed empty chapter '{cid}'")
+
+        if repairs:
+            log.info("Story repair: %d fixes applied", len(repairs))
+            for r in repairs:
+                log.info("  - %s", r)
+            self.emit("story_updated", self)
+
+        return repairs
 
     def validate_or_raise(self) -> None:
         """Validate and raise if any integrity violations found."""

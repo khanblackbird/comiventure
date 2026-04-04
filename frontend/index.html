@@ -58,6 +58,12 @@
                 <h3>Image Model</h3>
                 <div id="model-options">
                 </div>
+                <div id="checkpoint-actions">
+                    <label class="upload-btn">
+                        Upload Checkpoint (.safetensors)
+                        <input type="file" id="checkpoint-upload" accept=".safetensors" hidden>
+                    </label>
+                </div>
             </div>
 
             <!-- LoRA Library -->
@@ -128,6 +134,7 @@
                         </select>
                     </label>
                     <button id="btn-train-adapter-chapter" disabled>Train Adapter</button>
+                    <span id="adapter-feedback-count" class="feedback-count"></span>
                 </div>
             </div>
         </div>
@@ -137,6 +144,7 @@
     <div id="character-screen" class="hidden">
         <div id="character-screen-header">
             <button id="btn-char-screen-back">&larr; Chapters</button>
+            <button id="btn-char-screen-panels">&larr; Panels</button>
             <h2>Characters</h2>
             <span id="char-screen-model" class="model-indicator"></span>
             <div class="header-actions">
@@ -204,7 +212,9 @@
                     <div class="section-header">
                         <h3 id="character-detail-name">Character</h3>
                         <div class="section-actions">
+                            <button id="btn-analyze-fill" class="small-btn" title="Analyze best reference and auto-fill appearance">Analyze & Fill</button>
                             <button id="btn-edit-character-detail" class="small-btn">Edit</button>
+                            <button id="btn-delete-character-detail" class="small-btn danger-btn">Delete</button>
                         </div>
                     </div>
 
@@ -304,6 +314,7 @@
                             <div class="reference-actions">
                                 <button id="btn-ref-accept" class="accept-btn">Accept</button>
                                 <button id="btn-ref-reject" class="reject-btn">Reject</button>
+                                <button id="btn-ref-analyze" class="small-btn">Analyze</button>
                                 <button id="btn-ref-save">Save Labels</button>
                                 <button id="btn-ref-delete" class="danger-btn">Delete</button>
                             </div>
@@ -316,8 +327,8 @@
                             <h4>Panel Feedback</h4>
                         </div>
                         <div class="feedback-row">
-                            <button id="btn-solo-thumbs-up" class="feedback-btn" title="Good">&#x1F44D;</button>
-                            <button id="btn-solo-thumbs-down" class="feedback-btn" title="Bad">&#x1F44E;</button>
+                            <button id="btn-solo-thumbs-up" class="feedback-btn vote-up" title="Good image">Accept</button>
+                            <button id="btn-solo-thumbs-down" class="feedback-btn vote-down" title="Bad image">Reject</button>
                             <button id="btn-solo-regenerate" class="small-btn">Regenerate</button>
                         </div>
                     </div>
@@ -335,6 +346,7 @@
                 <button id="btn-regenerate-all">Regenerate</button>
                 <button id="btn-save">Save</button>
                 <button id="btn-download">Download</button>
+                <button id="btn-app-characters">Characters</button>
                 <button id="btn-back-to-chapters">Chapters</button>
             </nav>
         </header>
@@ -430,10 +442,9 @@
                     <details class="sidebar-collapse" id="panel-feedback" hidden>
                         <summary>Feedback & Review</summary>
                         <div class="feedback-row">
-                            <button id="btn-thumbs-up" class="feedback-btn" title="Good">&#x1F44D;</button>
-                            <button id="btn-thumbs-down" class="feedback-btn" title="Bad">&#x1F44E;</button>
+                            <button id="btn-thumbs-up" class="feedback-btn vote-up" title="Good image">Accept</button>
+                            <button id="btn-thumbs-down" class="feedback-btn vote-down" title="Bad image">Reject</button>
                             <button id="btn-review" class="small-btn">Review</button>
-                            <span id="feedback-count" class="feedback-count"></span>
                         </div>
                         <div id="review-result" hidden>
                             <div class="review-score"></div>
@@ -452,6 +463,7 @@
                         </div>
                         <div class="feedback-row">
                             <button id="btn-train-adapter" class="small-btn" disabled>Train</button>
+                            <span id="feedback-count" class="feedback-count"></span>
                             <label class="feedback-label">Rank:
                                 <select id="adapter-rank" class="small-select">
                                     <option value="2">2</option>

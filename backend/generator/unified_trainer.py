@@ -18,9 +18,12 @@ The training step:
 """
 from __future__ import annotations
 
+import logging
 import torch
 from dataclasses import dataclass
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 from backend.generator.adversarial_adapter import (
     AdversarialAdapter,
@@ -228,12 +231,11 @@ class UnifiedTrainer:
 
             if (epoch == 0 or epoch == epochs - 1
                     or (epoch + 1) % max(1, epochs // 10) == 0):
-                print(
-                    f"  Epoch {epoch + 1}/{epochs}: "
-                    f"vis={result.visual_loss:.4f} "
-                    f"lang={result.language_loss:.4f} "
-                    f"review={result.review_loss:.4f} "
-                    f"align={result.alignment:.4f}"
+                log.info(
+                    "  Epoch %d/%d: vis=%.4f lang=%.4f review=%.4f align=%.4f",
+                    epoch + 1, epochs,
+                    result.visual_loss, result.language_loss,
+                    result.review_loss, result.alignment,
                 )
 
         self.adapter.eval()

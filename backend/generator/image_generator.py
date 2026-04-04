@@ -13,8 +13,11 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 from backend.models.emitter import Emitter
 from backend.models.content_store import ContentStore
@@ -98,23 +101,32 @@ class ImageGenerator(Emitter):
         from diffusers import StableDiffusionXLPipeline
         import torch
 
-        print(f"Loading model: {self.model_id}")
+        log.info("Loading model: %s", self.model_id)
 
-        # Try local cache first — no network needed if already downloaded
-        try:
-            self.pipeline = StableDiffusionXLPipeline.from_pretrained(
-                self.model_id,
-                torch_dtype=torch.float16,
-                local_files_only=True,
-            )
-            print(f"Loaded from cache: {self.model_id}")
-        except Exception:
-            # Fall back to downloading
-            print(f"Not cached, downloading: {self.model_id}")
-            self.pipeline = StableDiffusionXLPipeline.from_pretrained(
-                self.model_id,
+        local_path = Path(self.model_id)
+        if local_path.exists() and local_path.suffix == ".safetensors":
+            # Local single-file checkpoint (e.g. from Civitai)
+            log.info("Loading local checkpoint: %s", local_path.name)
+            self.pipeline = StableDiffusionXLPipeline.from_single_file(
+                str(local_path),
                 torch_dtype=torch.float16,
             )
+        else:
+            # HuggingFace model ID — try local cache first
+            try:
+                self.pipeline = StableDiffusionXLPipeline.from_pretrained(
+                    self.model_id,
+                    torch_dtype=torch.float16,
+                    local_files_only=True,
+                )
+                log.info("Loaded from cache: %s", self.model_id)
+            except Exception:
+                # Fall back to downloading
+                log.info("Not cached, downloading: %s", self.model_id)
+                self.pipeline = StableDiffusionXLPipeline.from_pretrained(
+                    self.model_id,
+                    torch_dtype=torch.float16,
+                )
 
         # Sequential CPU offload — required for 8GB VRAM with SDXL
         self.pipeline.enable_sequential_cpu_offload()
@@ -218,15 +230,15 @@ class ImageGenerator(Emitter):
         height: int,
         steps: int,
         guidance_scale: float,
-        seed: int | None = None,
-        ip_adapter_image: list | None = None,
+        seed: Optional[int] = None,
+        ip_adapter_image: Optional[list] = None,
     ):
         """Synchronous inference — called in a thread.
         Captures latents for adversarial training without extra overhead.
         """
         import torch
 
-        generator = torch.Generator(device=self.device)
+        generator = torch.Generator(device="cpu")
         if seed is not None:
             generator.manual_seed(seed)
         else:
@@ -368,10 +380,10 @@ class ImageGenerator(Emitter):
             mask_image = mask_image.resize(source_image.size, Image.NEAREST)
 
         # Load inpainting pipeline from the same base model
-        if not hasattr(self, '_inpaint_pipeline') or self._inpaint_pipeline is None:
+        if self._inpaint_pipeline is None:
             self._inpaint_pipeline = AutoPipelineForInpainting.from_pipe(self.pipeline)
 
-        generator = torch.Generator(device=self.device)
+        generator = torch.Generator(device="cpu")
         if seed is not None:
             generator.manual_seed(seed)
         else:

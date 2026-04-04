@@ -15,8 +15,11 @@ Flow:
 """
 from __future__ import annotations
 
+import logging
 from io import BytesIO
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 from PIL import Image
 
@@ -70,10 +73,11 @@ class IPAdapterBridge:
             self._loaded = True
             return True
         except Exception as e:
-            print(
-                f"IP-Adapter not available ({e}). "
-                f"Generation will work without it. "
-                f"To enable: download {self.model_name} to HF cache."
+            log.info(
+                "IP-Adapter not available (%s). "
+                "Generation will work without it. "
+                "To enable: download %s to HF cache.",
+                e, self.model_name,
             )
             self._load_failed = True
             return False

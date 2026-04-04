@@ -171,6 +171,16 @@ class TestLatentCapture:
             "Use callback_on_step_end to capture latents instead."
         )
 
+    def test_generator_device_is_cpu(self):
+        """torch.Generator must use 'cpu' — sequential_cpu_offload runs latents on CPU."""
+        import inspect
+        for method in (ImageGenerator._run_inference, ImageGenerator._run_inpaint):
+            source = inspect.getsource(method)
+            assert 'Generator(device="cpu")' in source or "Generator(device='cpu')" in source, (
+                f"{method.__name__}: torch.Generator must be created on 'cpu', not self.device — "
+                "sequential_cpu_offload runs prepare_latents on CPU"
+            )
+
     def test_generator_has_latent_attributes(self, content_store):
         gen = ImageGenerator(content_store, device="cpu")
         assert hasattr(gen, '_last_visual_latent')

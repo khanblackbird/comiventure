@@ -157,27 +157,36 @@
 }
 
 .feedback-btn {
-    font-size: 1.1rem;
-    padding: 0.1rem 0.3rem;
+    font-size: 0.8rem;
+    padding: 0.3rem 0.6rem;
     min-width: 0;
     background: transparent;
     border: 1px solid var(--border);
     cursor: pointer;
     border-radius: 4px;
+    transition: background 0.15s, border-color 0.15s;
 }
 
-.feedback-btn:hover {
-    background: var(--bg-panel);
+.feedback-btn.vote-up:hover {
+    background: rgba(34, 170, 85, 0.3);
+    border-color: #2a5;
+}
+
+.feedback-btn.vote-down:hover {
+    background: rgba(170, 85, 34, 0.3);
+    border-color: #a52;
 }
 
 .feedback-btn.selected-up {
     background: #2a5;
     border-color: #2a5;
+    color: white;
 }
 
 .feedback-btn.selected-down {
     background: #a52;
     border-color: #a52;
+    color: white;
 }
 
 .small-select {

@@ -5,7 +5,8 @@ Interactive comic book adventure engine powered by local AI models. Create chara
 ## What It Does
 
 - **Comic creation**: Story → Character → Chapter → Page → Panel → Script hierarchy
-- **AI image generation**: SDXL models (5 built-in: anime, pony, furry, animagine, autismmix)
+- **AI image generation**: SDXL models (5 built-in + custom checkpoint upload from Civitai etc.)
+- **LoRA support**: Upload LoRAs from HuggingFace/Civitai, or train your own from feedback
 - **Character chat**: Talk to characters in-character via Llama 3 8B
 - **Adversarial training**: User feedback (thumbs up/down) trains a LoRA adapter for style consistency
 - **IP-Adapter**: Character reference images condition generation for visual consistency
@@ -59,9 +60,9 @@ LoraBridge → load_lora_weights() into pipeline
 
 | Module | Purpose |
 |--------|---------|
-| `backend/models/` | Domain objects (Story, Character, Chapter, Page, Panel, Script) with emission, dirty-flag caching, context inheritance |
-| `backend/generator/` | Image generation (SDXL), prompt composition (LLM), adversarial adapter, LoRA bridge, IP-Adapter, image analysis, review |
-| `backend/api/routes.py` | FastAPI REST endpoints for all CRUD, generation, feedback, training, model switching |
+| `backend/models/` | Domain objects with emission architecture, dirty-flag caching, context inheritance. Objects hold state and emit events — no work logic. |
+| `backend/generator/` | Image generation, prompt composition, adversarial adapter, LoRA bridge, IP-Adapter, image analysis. All external calls use logging, not print. |
+| `backend/api/routes.py` | FastAPI REST endpoints for CRUD, generation, feedback, training, model switching. File uploads are path-sanitized. |
 | `backend/composer/` | Comic page layout computation (CSS grid templates) |
 | `backend/models/storage.py` | Save/load .cvn files (ZIP with JSON + content-addressed assets) |
 
@@ -75,41 +76,51 @@ LoraBridge → load_lora_weights() into pipeline
 | `frontend/js/comic.js` | Comic panel renderer (CSS grid, speech bubbles, selection) |
 | `frontend/js/editor.js` | Inline mask editor for inpainting |
 
-### Screens
-
-1. **Splash** → New Story / Load File / Saved Stories
-2. **Chapter Select** → Story settings (art style, genre), chapter cards (location, time, synopsis), model selector, adapter training
-3. **Character Screen** → Character list, appearance editor, solo chapter panels, reference bank, upload & analyze
-4. **Comic Editor** → Page viewer, panel selection, script editing, generation, feedback, review, chat
-
 ## Getting Started
 
-### Docker (recommended)
+### Using start.sh (recommended)
+
+```bash
+./start.sh
+```
+
+The startup script runs preflight checks (Docker, GPU, disk space, swap, Ollama, CUDA containers, image rebuild), auto-pulls from git if clean, then starts the server with a health check. See all commands:
+
+```bash
+./start.sh              # Start server
+./start.sh proxy        # Start with Civitai WARP proxy
+./start.sh restart      # Restart app container
+./start.sh stop         # Stop everything
+./start.sh logs         # Tail app logs
+./start.sh test         # Run backend tests
+./start.sh test-ui      # Run Playwright UI tests
+./start.sh test-all     # Run all tests
+./start.sh setup-proxy  # First-time WARP proxy setup
+```
+
+### Docker (manual)
 
 ```bash
 docker compose up --build
 ```
 
-Requires NVIDIA GPU with Docker GPU support. The compose file runs the app + ollama containers sharing the GPU.
+Requires NVIDIA GPU with Docker GPU support. The compose file runs the app + Ollama containers sharing the GPU.
 
 ### Manual Setup
 
 ```bash
-# Python environment
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
 # Ollama (for LLM + LLaVA)
-# Install ollama, then:
 ollama pull llama3:8b
 ollama pull llava:7b
 
-# Run
 uvicorn backend.app:app --host 0.0.0.0 --port 8000
 ```
 
-Open `http://localhost:8000` in your browser.
+Open `http://localhost:8000`.
 
 ### First Use
 
@@ -121,6 +132,8 @@ Open `http://localhost:8000` in your browser.
 
 ## Image Models
 
+### Built-in Models
+
 | Key | Model | Style |
 |-----|-------|-------|
 | `anime` | Lykon/AAM_XL_AnimeMix | Clean anime illustration |
@@ -129,56 +142,86 @@ Open `http://localhost:8000` in your browser.
 | `furry` | John6666/nova-furry-xl-il-v120-sdxl | Furry/anthro specialist |
 | `autismmix` | John6666/autismmix-sdxl-autismmix-pony-sdxl | Anime + furry blend |
 
-Models download on first use. Switch models from the chapter select screen.
+Models download on first use. Switch from the chapter select screen.
 
-## Default Prompts
+### Custom Checkpoints
 
-**Style** (prepended to all prompts): `cinematic lighting, hyper-detailed textures`
+Upload `.safetensors` checkpoint files (from Civitai etc.) via the "Upload Checkpoint" button on the chapter select screen. Any SDXL-compatible checkpoint works. Uploaded checkpoints appear in the model selector as `local:<name>`.
 
-**Negative** (default for all generation):
-```
-lowres, (worst quality, bad quality:1.2), bad anatomy, sketch, jpeg artefacts,
-signature, watermark, old, oldest, censored, bar_censor, simple background
-```
+### LoRAs
 
-Both are overridable — art style via Story settings, negative prompt per panel.
+Upload LoRA files or browse HuggingFace/Civitai from the Style LoRAs section. LoRAs stack on top of the active base model with adjustable strength.
 
 ## Training
 
 The adversarial adapter learns from user feedback:
 
-1. Generate a panel → rate it (thumbs up/down)
+1. Generate a panel → rate it (thumbs up/down) — one vote per image
 2. LLaVA reviews it → captures latent embeddings
 3. Train adapter (configurable rank + epochs)
-4. Trained weights convert to LoRA via LoraBridge
+4. Trained weights convert to LoRA via LoraBridge and load into the pipeline
 5. Next generation uses the adapted model
 
-Training parameters (rank, epochs) are adjustable from the chapter select screen.
+Training parameters (rank, epochs) are adjustable from the chapter select screen. The feedback counter appears next to the Train button.
+
+## Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OLLAMA_HOST` | `http://127.0.0.1:11434` | Ollama API endpoint |
+| `HF_TOKEN` | (none) | HuggingFace token for gated models |
+| `CIVITAI_PROXY` | (none) | SOCKS5 proxy for Civitai downloads |
 
 ## Hardware
 
-Developed on NVIDIA RTX 4060 Mobile (8GB VRAM). Uses sequential CPU offload for SDXL models.
+Developed on NVIDIA RTX 4060 Mobile (8GB VRAM, 15GB RAM). Uses sequential CPU offload for SDXL models.
 
-- **Minimum**: 8GB VRAM NVIDIA GPU with CUDA
+- **Minimum**: 8GB VRAM NVIDIA GPU, 16GB system RAM (or swap)
 - **Recommended**: 12GB+ VRAM for faster generation
+
+The startup script auto-creates a 16GB swap file if none exists.
+
+## Troubleshooting
+
+**CUDA not detected in container**: Usually a nvidia-container-toolkit / driver version mismatch. `start.sh` auto-detects this and adds `privileged: true` to docker-compose.yml as a workaround.
+
+**OOM during generation**: SDXL with CPU offload needs system RAM + swap. Run `./start.sh` — it auto-creates swap if missing.
+
+**Image analysis fails**: Check that Ollama is running and has `llava:7b` pulled. The analysis timeout is 180 seconds for large images.
+
+**503 Service Unavailable on model switch**: The image generator initializes on first use. If CUDA isn't available, all generation endpoints return 503.
+
+**Story won't save (integrity violation)**: The save process auto-repairs orphaned scripts and empty chapters before validation. If it still fails, there may be a deeper data issue — check the server logs.
 
 ## Testing
 
 ```bash
-.venv/bin/python -m pytest tests/ -v
+./start.sh test          # Backend tests (fast, no GPU needed)
+./start.sh test-ui       # UI tests (Playwright, needs running server)
+./start.sh test-all      # Both
 ```
 
 Test coverage:
-- Model hierarchy (creation, traversal, context, validation)
+- Model hierarchy (creation, traversal, context, validation, repair)
+- Character removal cascading (scripts, solo chapters, bindings)
+- Feedback deduplication (one vote per image)
 - Content store (SHA-256, CRUD, round-trip)
 - Storage (save/load .cvn with all fields)
 - Image generation (prompt composition, latent capture, pipeline integrity)
-- Adversarial training (adapter, unified trainer, LoRA bridge)
-- IP-Adapter (reference collection, pipeline loading)
+- Adversarial training (adapter, unified trainer, LoRA bridge dimension projection)
+- IP-Adapter (reference collection, pipeline loading, failure handling)
 - Appearance and profile (structured properties, reference bank)
-- Prompt composition (to_prompt chain, character filtering, defaults)
+- Prompt composition (to_prompt chain, character filtering, negative hierarchy)
 - API hierarchy enforcement and integrity
 - End-to-end workflows
+
+## Design Principles
+
+- **Emission architecture**: All domain objects inherit from `Emitter`. Objects hold state and emit events upward — they don't call each other's methods. Events propagate via `emit_up()` through the parent chain. Context inherits downward via `get_context()` with dirty-flag caching.
+- **Content-addressable storage**: Only SHA-256 hashes travel through emission — never pixels. The `ContentStore` handles all binary data separately.
+- **Flat registry**: The Story maintains an O(1) lookup of every object by ID. No tree traversal needed.
+- **Hierarchy validation**: `validate()` walks the entire graph checking integrity. `repair()` auto-fixes common issues (orphaned scripts, dangling references).
+- **Logging over print**: All output goes through Python `logging` module for configurable verbosity.
 
 ## File Format
 

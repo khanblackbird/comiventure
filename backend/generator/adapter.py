@@ -18,11 +18,13 @@ Architecture:
 """
 from __future__ import annotations
 
-import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass, field
+
+log = logging.getLogger(__name__)
 
 from backend.models.content_store import ContentStore
 from backend.models.story import Story
@@ -83,7 +85,12 @@ class StoryAdapter(Emitter):
     def add_feedback(self, content_hash: str, prompt: str, accepted: bool,
                      character_ids: list[str] = None, panel_id: str = "",
                      negative_prompt: str = "") -> FeedbackEntry:
-        """Record user feedback on a generated image."""
+        """Record user feedback on a generated image.
+        One vote per image — replaces any existing vote for this content_hash.
+        """
+        # Remove existing vote for this image
+        self.feedback = [f for f in self.feedback if f.content_hash != content_hash]
+
         entry = FeedbackEntry(
             content_hash=content_hash,
             prompt=prompt,
@@ -105,169 +112,6 @@ class StoryAdapter(Emitter):
     def can_train(self) -> bool:
         """Need enough positive samples to train."""
         return len(self.positive_samples()) >= self.min_training_samples
-
-    async def train(self, base_pipeline) -> Optional[str]:
-        """Train the LoRA adapter using collected feedback.
-
-        Returns the content hash of the saved adapter weights,
-        or None if training failed/not enough data.
-        """
-        if not self.can_train():
-            return None
-
-        if self.is_training:
-            return None
-
-        self.is_training = True
-        self.emit("training_started", {"story_id": self.story_id})
-
-        try:
-            adapter_bytes = await asyncio.to_thread(
-                self._train_lora,
-                base_pipeline,
-            )
-
-            if adapter_bytes:
-                self.adapter_hash = self.content_store.store(
-                    adapter_bytes,
-                    "application/octet-stream",
-                    metadata={
-                        "type": "lora_adapter",
-                        "story_id": self.story_id,
-                        "positive_samples": len(self.positive_samples()),
-                        "negative_samples": len(self.negative_samples()),
-                        "rank": self.lora_rank,
-                        "epochs": self.training_epochs,
-                    },
-                )
-                self.emit("training_complete", {
-                    "story_id": self.story_id,
-                    "adapter_hash": self.adapter_hash,
-                })
-                return self.adapter_hash
-
-        except Exception as e:
-            print(f"Adapter training failed: {e}")
-            self.emit("training_failed", {"error": str(e)})
-        finally:
-            self.is_training = False
-
-        return None
-
-    def _train_lora(self, base_pipeline):
-        """Synchronous LoRA training — runs in a thread.
-
-        Training happens through the adversarial adapter. The trained
-        weights are then converted to LoRA format via LoraBridge and
-        loaded into the pipeline using diffusers' native load_lora_weights.
-
-        This avoids peft's get_peft_model which corrupts the UNet with
-        CPU offload (meta tensor crash).
-        """
-        if not hasattr(self, '_adversarial') or self._adversarial is None:
-            print("LoRA training skipped — no adversarial adapter")
-            return None
-
-        from backend.generator.lora_bridge import LoraBridge
-        bridge = LoraBridge(self._adversarial)
-        bridge.load_into_pipeline(base_pipeline)
-        print(f"LoRA weights loaded from adversarial adapter (rank={self._adversarial.rank})")
-        return self._adversarial.save_weights()
-
-    def _train_lora_DISABLED(self, base_pipeline):
-        """Original LoRA training — kept for reference, do not call."""
-        import torch
-        from io import BytesIO
-        from PIL import Image
-        from peft import LoraConfig, get_peft_model
-
-        positive = self.positive_samples()
-        if not positive:
-            return None
-
-        # Configure LoRA
-        lora_config = LoraConfig(
-            r=self.lora_rank,
-            lora_alpha=self.lora_rank,
-            target_modules=["to_k", "to_q", "to_v", "to_out.0"],
-            lora_dropout=0.05,
-        )
-
-        # Get the UNet and add LoRA
-        unet = base_pipeline.unet
-        unet.requires_grad_(False)
-        unet = get_peft_model(unet, lora_config)
-        unet.print_trainable_parameters()
-
-        optimizer = torch.optim.AdamW(
-            unet.parameters(),
-            lr=self.learning_rate,
-        )
-
-        # Training loop
-        unet.train()
-        for epoch in range(self.training_epochs):
-            total_loss = 0
-
-            for sample in positive:
-                image_bytes = self.content_store.retrieve(sample.content_hash)
-                if not image_bytes:
-                    continue
-
-                image = Image.open(BytesIO(image_bytes)).convert("RGB")
-                image = image.resize((512, 512))
-
-                # Encode the image through the VAE
-                with torch.no_grad():
-                    from diffusers.image_processor import VaeImageProcessor
-                    processor = VaeImageProcessor()
-                    pixel_values = processor.preprocess(image)
-                    pixel_values = pixel_values.to(
-                        device=base_pipeline.vae.device,
-                        dtype=base_pipeline.vae.dtype,
-                    )
-                    latents = base_pipeline.vae.encode(pixel_values).latent_dist.sample()
-                    latents = latents * base_pipeline.vae.config.scaling_factor
-
-                # Add noise
-                noise = torch.randn_like(latents)
-                timesteps = torch.randint(0, 1000, (1,), device=latents.device)
-                noisy_latents = base_pipeline.scheduler.add_noise(latents, noise, timesteps)
-
-                # Encode the prompt
-                with torch.no_grad():
-                    prompt_embeds = base_pipeline.encode_prompt(sample.prompt)
-                    if isinstance(prompt_embeds, tuple):
-                        prompt_embeds = prompt_embeds[0]
-
-                # Predict noise
-                noise_pred = unet(
-                    noisy_latents,
-                    timesteps,
-                    encoder_hidden_states=prompt_embeds,
-                ).sample
-
-                # MSE loss
-                loss = torch.nn.functional.mse_loss(noise_pred, noise)
-                total_loss += loss.item()
-
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-            avg_loss = total_loss / max(len(positive), 1)
-            print(f"  Epoch {epoch + 1}/{self.training_epochs}, loss: {avg_loss:.4f}")
-
-        # Save LoRA weights
-        buffer = BytesIO()
-        unet.save_pretrained(buffer)
-        adapter_bytes = buffer.getvalue()
-
-        # Restore UNet to base state
-        unet = unet.merge_and_unload()
-        base_pipeline.unet = unet
-
-        return adapter_bytes
 
     def load_adapter(self, base_pipeline) -> bool:
         """Load trained adapter weights into the pipeline.
@@ -291,10 +135,10 @@ class StoryAdapter(Emitter):
             bridge.load_into_pipeline(base_pipeline)
 
             self._adversarial = adversarial
-            print(f"Loaded adapter for story {self.story_id}")
+            log.info("Loaded adapter for story %s", self.story_id)
             return True
         except Exception as e:
-            print(f"Failed to load adapter: {e}")
+            log.warning("Failed to load adapter: %s", e)
             return False
 
     def to_dict(self) -> dict:

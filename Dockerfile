@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -16,7 +16,7 @@ RUN python -m ensurepip --upgrade \
 WORKDIR /app
 
 # Install PyTorch with CUDA (large layer, cached separately)
-RUN python -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu124
+RUN python -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu128
 
 # Install AI model dependencies (separate layer for caching)
 RUN python -m pip install --no-cache-dir diffusers transformers accelerate safetensors Pillow python-multipart "httpx[socks]"

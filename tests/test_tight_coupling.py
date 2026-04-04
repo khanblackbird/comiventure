@@ -202,15 +202,15 @@ class TestCharacterRemoval:
         story.remove_character("c2")
         assert "c2" not in chapter.character_ids
 
-    def test_cannot_remove_last_character_script(self):
+    def test_remove_last_character_cleans_script(self):
         story = make_story()
         panel = get_chain(story)["panel"]
         assert len(panel.scripts) == 1
 
-        # Removing the only character — script should stay to preserve chain
+        # Removing the only character — script must be removed too
+        # (leaving orphaned scripts causes integrity violations on save)
         story.remove_character("c1")
-        # Character is gone but script remains (can't break chain)
-        assert len(panel.scripts) == 1
+        assert len(panel.scripts) == 0
 
 
 class TestAllObjectsParented:

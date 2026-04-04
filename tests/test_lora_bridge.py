@@ -139,22 +139,21 @@ class TestLoraBridgeStateDict:
 
 
 class TestLoraBridgeDimensionHandling:
-    def test_skips_mismatched_dimensions(self, adapter):
-        """Layers whose dimensions don't match adapter hidden_dim are skipped."""
+    def test_projects_mismatched_dimensions(self, adapter):
+        """Layers with different dims get projected LoRA weights."""
         bridge = LoraBridge(adapter)
 
-        # Create mock with wrong dimensions
         unet = MagicMock()
         attn = MagicMock()
-        wrong_layer = MagicMock()
-        wrong_layer.in_features = 1280  # doesn't match 64
-        wrong_layer.out_features = 1280
-        attn.to_k = wrong_layer
-        attn.to_q = wrong_layer
-        attn.to_v = wrong_layer
+        layer = MagicMock()
+        layer.in_features = 1280  # different from adapter's 64
+        layer.out_features = 1280
+        attn.to_k = layer
+        attn.to_q = layer
+        attn.to_v = layer
 
         unet.named_modules.return_value = [
-            ("down_blocks.0.attentions.0.transformer_blocks.0.attn1", attn),
+            ("down_blocks.0.attentions.0.attn1", attn),
         ]
 
         pipeline = MagicMock()
@@ -163,37 +162,35 @@ class TestLoraBridgeDimensionHandling:
         pipeline.text_encoder.named_modules.return_value = []
 
         state_dict = bridge.to_state_dict(pipeline)
-        # No UNet keys should be produced for mismatched dims
         unet_keys = [k for k in state_dict if "unet" in k.lower()]
-        assert len(unet_keys) == 0
+        assert len(unet_keys) > 0
+        # Projected down weight should be [rank, 1280]
+        down_key = [k for k in unet_keys if "lora_down" in k][0]
+        assert state_dict[down_key].shape[1] == 1280
 
-    def test_mixed_dimensions_only_matches(self, adapter):
-        """Only layers with matching dimensions get LoRA weights."""
+    def test_all_layers_get_weights(self, adapter):
+        """All attention layers get LoRA weights regardless of dim."""
         bridge = LoraBridge(adapter)
 
         unet = MagicMock()
 
-        # Matching attention
-        good_attn = MagicMock()
-        good_layer = MagicMock()
-        good_layer.in_features = 64
-        good_layer.out_features = 64
-        good_attn.to_k = good_layer
-        good_attn.to_q = good_layer
-        good_attn.to_v = good_layer
+        attn_64 = MagicMock()
+        layer_64 = MagicMock()
+        layer_64.in_features = 64
+        attn_64.to_k = layer_64
+        attn_64.to_q = layer_64
+        attn_64.to_v = layer_64
 
-        # Non-matching attention
-        bad_attn = MagicMock()
-        bad_layer = MagicMock()
-        bad_layer.in_features = 256
-        bad_layer.out_features = 256
-        bad_attn.to_k = bad_layer
-        bad_attn.to_q = bad_layer
-        bad_attn.to_v = bad_layer
+        attn_256 = MagicMock()
+        layer_256 = MagicMock()
+        layer_256.in_features = 256
+        attn_256.to_k = layer_256
+        attn_256.to_q = layer_256
+        attn_256.to_v = layer_256
 
         unet.named_modules.return_value = [
-            ("block.0.attn1", good_attn),
-            ("block.1.attn1", bad_attn),
+            ("block.0.attn1", attn_64),
+            ("block.1.attn1", attn_256),
         ]
 
         pipeline = MagicMock()
@@ -203,9 +200,8 @@ class TestLoraBridgeDimensionHandling:
 
         state_dict = bridge.to_state_dict(pipeline)
         keys = list(state_dict.keys())
-        # Should have keys for block.0 but not block.1
         assert any("block.0" in k for k in keys)
-        assert not any("block.1" in k for k in keys)
+        assert any("block.1" in k for k in keys)
 
 
 class TestLoraBridgeSaveLoad:

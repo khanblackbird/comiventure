@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import os
 import base64
+import logging
 import httpx
 from dataclasses import dataclass, field
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -111,12 +114,14 @@ class ImageAnalyzer:
                         "images": [image_b64],
                         "stream": False,
                     },
-                    timeout=60.0,
+                    timeout=180.0,
                 )
                 if response.status_code == 200:
                     return response.json().get("response", "").strip()
+                else:
+                    log.warning("Image analysis caption HTTP %s: %s", response.status_code, response.text[:200])
         except Exception as e:
-            print(f"Image analysis caption failed: {e}")
+            log.warning("Image analysis caption failed: %s: %s", type(e).__name__, e)
 
         return ""
 
@@ -155,7 +160,7 @@ class ImageAnalyzer:
                     text = response.json().get("response", "")
                     return self._parse_character(text, caption)
         except Exception as e:
-            print(f"Character extraction failed: {e}")
+            log.warning("Character extraction failed: %s", e)
 
         return CharacterAnalysis(caption=caption)
 
@@ -192,7 +197,7 @@ class ImageAnalyzer:
                     text = response.json().get("response", "")
                     return self._parse_art_style(text, caption)
         except Exception as e:
-            print(f"Art style extraction failed: {e}")
+            log.warning("Art style extraction failed: %s", e)
 
         return ArtStyleAnalysis(caption=caption)
 
@@ -213,9 +218,10 @@ class ImageAnalyzer:
                     value = line.split(":", 1)[1].strip()
                     # Strip quotes, parentheses
                     value = value.strip("()\"'")
-                    if value.lower() not in ("", "n/a", "none",
-                                              "not visible",
-                                              "not applicable"):
+                    if value.lower() not in (
+                        "", "n/a", "none",
+                        "not visible", "not applicable",
+                    ):
                         fields[field_name] = value
                     break
 

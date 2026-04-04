@@ -9,8 +9,11 @@ and surrounding panels. Used for:
 """
 from __future__ import annotations
 
+import logging
 import os
 import httpx
+
+log = logging.getLogger(__name__)
 
 from backend.models.character import Character
 from backend.models.panel import Panel
@@ -67,7 +70,7 @@ class CharacterChat:
                     result = response.json()
                     return result.get("message", {}).get("content", "").strip()
         except Exception as e:
-            print(f"Character chat failed: {e}")
+            log.warning("Character chat failed: %s", e)
 
         return f"*{character.name} doesn't respond*"
 

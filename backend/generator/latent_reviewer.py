@@ -12,10 +12,13 @@ from __future__ import annotations
 
 import os
 import base64
+import logging
 import torch
 import httpx
 from dataclasses import dataclass
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -102,7 +105,7 @@ class LatentReviewer:
                 if emb:
                     return torch.tensor(emb, dtype=torch.float32)
         except Exception as e:
-            print(f"Image embedding failed: {e}")
+            log.warning("Image embedding failed: %s", e)
         return None
 
     async def _text_embedding(
@@ -125,7 +128,7 @@ class LatentReviewer:
                 if emb:
                     return torch.tensor(emb, dtype=torch.float32)
         except Exception as e:
-            print(f"Text embedding failed: {e}")
+            log.warning("Text embedding failed: %s", e)
         return None
 
     async def _caption_image(
@@ -150,5 +153,5 @@ class LatentReviewer:
             if response.status_code == 200:
                 return response.json().get("response", "").strip()
         except Exception as e:
-            print(f"Caption failed: {e}")
+            log.warning("Caption failed: %s", e)
         return ""
