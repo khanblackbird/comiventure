@@ -110,29 +110,13 @@ check_disk() {
     fi
 }
 
-check_ollama_installed() {
-    if command -v ollama &>/dev/null; then
-        if systemctl is-active --quiet ollama 2>/dev/null; then
-            info "Ollama service running"
-        elif pgrep -x ollama &>/dev/null; then
-            info "Ollama process running"
-        else
-            warn "Ollama installed but not running — try: ollama serve"
-            return
-        fi
-        # Check required models are pulled
-        local models
-        models=$(ollama list 2>/dev/null | awk 'NR>1{print $1}' || true)
-        for required in llama3:8b llava:7b; do
-            if echo "$models" | grep -q "^${required}"; then
-                info "Ollama model: $required"
-            else
-                warn "Ollama model '$required' not pulled — run: ollama pull $required"
-            fi
-        done
+check_ollama_image() {
+    # Ollama runs inside Docker (docker-compose.yml), not on the host.
+    # Just verify the image is available or can be pulled.
+    if sudo docker image inspect ollama/ollama &>/dev/null; then
+        info "Ollama Docker image available"
     else
-        warn "Ollama not installed — character chat and LLM features will not work"
-        echo "     Install: curl -fsSL https://ollama.com/install.sh | sh"
+        echo "Ollama image not cached — will be pulled on first start"
     fi
 }
 
@@ -251,11 +235,25 @@ wait_for_server() {
 }
 
 check_ollama_reachable() {
-    if curl -sf http://localhost:11434/ -o /dev/null 2>/dev/null; then
-        info "Ollama reachable on port 11434"
-    else
+    # Ollama runs in docker-compose — check it's responding
+    if ! curl -sf http://localhost:11434/ -o /dev/null 2>/dev/null; then
         warn "Ollama not reachable on port 11434 — LLM features may not work"
+        echo "     Check: sudo docker compose logs ollama"
+        return
     fi
+    info "Ollama reachable on port 11434"
+
+    # Check required models are pulled inside the ollama container
+    local models
+    models=$(curl -sf http://localhost:11434/api/tags 2>/dev/null || true)
+    for required in llama3:8b llava:7b; do
+        if echo "$models" | grep -q "\"$required\""; then
+            info "Ollama model: $required"
+        else
+            warn "Ollama model '$required' not pulled"
+            echo "     Run: sudo docker compose exec ollama ollama pull $required"
+        fi
+    done
 }
 
 verify_gpu_loaded() {
@@ -302,7 +300,7 @@ run_preflight() {
     check_ram
     check_disk
     check_swap
-    check_ollama_installed
+    check_ollama_image
 
     step "Git status"
     check_git
