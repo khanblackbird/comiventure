@@ -82,22 +82,18 @@ class Script(Emitter):
         }
 
     def to_prompt(self) -> str:
-        """Compose this script into comma-separated tags for image generation.
+        """Compose this script into comma-separated Danbooru-style tags.
         Dialogue is excluded — it gets overlaid as speech bubbles instead.
-        Tag format: no brackets, no filler words, just descriptors.
         """
-        parts = []
-        if self.pose:
-            parts.append(self.pose)
-        if self.action:
-            parts.append(self.action)
-        if self.emotion:
-            parts.append(self.emotion)
-        if self.outfit:
-            parts.append(self.outfit)
-        if self.direction:
-            parts.append(self.direction)
-        return " ".join(parts)
+        from backend.generator.tag_vocabulary import tags_for_script
+        tags = tags_for_script(
+            pose=self.pose,
+            action=self.action,
+            emotion=self.emotion,
+            outfit=self.outfit,
+            direction=self.direction,
+        )
+        return ", ".join(tags)
 
     def to_dict(self) -> dict:
         return {

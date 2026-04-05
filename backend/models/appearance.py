@@ -31,29 +31,23 @@ class AppearanceProperties:
     art_style_notes: str = ""
 
     def to_prompt(self) -> str:
-        parts = []
-        if self.species:
-            parts.append(self.species)
-        if self.body_type:
-            parts.append(f"{self.body_type} build")
-        if self.height:
-            parts.append(self.height)
-        if self.skin_tone:
-            parts.append(self.skin_tone)
-        if self.hair_colour or self.hair_style:
-            hair = " ".join(filter(None, [self.hair_colour, self.hair_style]))
-            parts.append(f"{hair} hair")
-        if self.eye_colour:
-            parts.append(f"{self.eye_colour} eyes")
+        """Convert to comma-separated Danbooru-style tags."""
+        from backend.generator.tag_vocabulary import tags_for_appearance
+        tags = tags_for_appearance(
+            species=self.species,
+            hair_colour=self.hair_colour,
+            hair_style=self.hair_style,
+            eye_colour=self.eye_colour,
+            body_type=self.body_type,
+            skin_tone=self.skin_tone,
+            outfit=self.outfit,
+            accessories=self.accessories,
+        )
         if self.facial_features:
-            parts.append(self.facial_features)
-        if self.outfit:
-            parts.append(f"wearing {self.outfit}")
-        if self.accessories:
-            parts.append(f"with {self.accessories}")
+            tags.append(self.facial_features)
         if self.art_style_notes:
-            parts.append(self.art_style_notes)
-        return ", ".join(parts)
+            tags.append(self.art_style_notes)
+        return ", ".join(tags)
 
     def to_dict(self) -> dict:
         return {

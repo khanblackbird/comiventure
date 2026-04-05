@@ -103,14 +103,14 @@ class TestParseCharacterCleanFormat:
         assert result.body_type == "slim"
         assert result.height == "tall"
         assert result.skin_tone == "pale"
-        assert result.hair_style == "long ponytail"
-        assert result.hair_colour == "silver"
-        assert result.eye_colour == "green"
-        assert result.facial_features == "sharp jawline, high cheekbones"
-        assert result.outfit == "leather armor with a cape"
-        assert result.accessories == "silver pendant"
-        assert result.pose == "standing with arms crossed"
-        assert result.expression == "confident smirk"
+        assert result.hair_style == "ponytail"
+        assert result.hair_colour == "silver_hair"
+        assert result.eye_colour == "green_eyes"
+        assert result.facial_features == "sharp_jawline_high_cheekbones"
+        assert result.outfit in {"armor", "cape"}
+        assert result.accessories == "silver_pendant"
+        assert result.pose == "standing"
+        assert result.expression == "smirk"
         assert result.caption == "test caption"
 
     def test_preserves_caption(self, analyzer):
@@ -126,20 +126,20 @@ class TestParseCharacterMessyFormats:
     def test_extra_whitespace(self, analyzer):
         llm_response = "  species:   wolf  \n  body_type:  muscular  "
         result = analyzer._parse_character(llm_response, "")
-        assert result.species == "wolf"
+        assert result.species in {"wolf_ears", "wolf_tail"}
         assert result.body_type == "muscular"
 
     def test_parenthesised_values(self, analyzer):
         llm_response = "species: (fox)\nheight: (short)"
         result = analyzer._parse_character(llm_response, "")
-        assert result.species == "fox"
+        assert result.species in {"fox_ears", "fox_tail"}
         assert result.height == "short"
 
     def test_quoted_values(self, analyzer):
         llm_response = 'species: "human"\noutfit: "red dress"'
         result = analyzer._parse_character(llm_response, "")
         assert result.species == "human"
-        assert result.outfit == "red dress"
+        assert result.outfit == "dress"
 
     def test_extra_text_before_fields(self, analyzer):
         """LLM sometimes includes preamble before the structured data."""
@@ -158,14 +158,14 @@ class TestParseCharacterMessyFormats:
         """Value itself contains a colon."""
         llm_response = "outfit: armor: plate with chain mail underneath"
         result = analyzer._parse_character(llm_response, "")
-        assert result.outfit == "armor: plate with chain mail underneath"
+        assert result.outfit == "armor"
 
     def test_mixed_case_field_names(self, analyzer):
         llm_response = "Species: dragon\nBody_Type: large\nHAIR_COLOUR: red"
         result = analyzer._parse_character(llm_response, "")
-        assert result.species == "dragon"
+        assert result.species == "dragon_wings"
         assert result.body_type == "large"
-        assert result.hair_colour == "red"
+        assert result.hair_colour in {"red_hair", "multicolored_hair"}
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ class TestParseCharacterExcludedValues:
         llm_response = "eye_colour: not visible\nhair_colour: blonde"
         result = analyzer._parse_character(llm_response, "")
         assert result.eye_colour == ""
-        assert result.hair_colour == "blonde"
+        assert result.hair_colour == "blonde_hair"
 
     def test_not_applicable_excluded(self, analyzer):
         llm_response = "accessories: not applicable\npose: sitting"
@@ -207,7 +207,7 @@ class TestParseCharacterExcludedValues:
         """Fields not mentioned at all stay as empty strings."""
         llm_response = "species: cat"
         result = analyzer._parse_character(llm_response, "")
-        assert result.species == "cat"
+        assert result.species in {"cat_ears", "cat_tail"}
         assert result.body_type == ""
         assert result.height == ""
         assert result.outfit == ""

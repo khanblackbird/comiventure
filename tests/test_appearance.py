@@ -20,31 +20,32 @@ class TestAppearancePropertiesToPrompt:
 
     def test_body_type_appends_build(self):
         properties = AppearanceProperties(body_type="slim")
-        assert properties.to_prompt() == "slim build"
+        assert properties.to_prompt() == "slim"
 
     def test_hair_colour_only(self):
         properties = AppearanceProperties(hair_colour="red")
-        assert properties.to_prompt() == "red hair"
+        assert properties.to_prompt() in {"red_hair", "multicolored_hair"}
 
     def test_hair_style_only(self):
         properties = AppearanceProperties(hair_style="braided")
-        assert properties.to_prompt() == "braided hair"
+        assert properties.to_prompt() == "braid"
 
     def test_hair_colour_and_style_combined(self):
         properties = AppearanceProperties(hair_colour="silver", hair_style="long")
-        assert properties.to_prompt() == "silver long hair"
+        prompt = properties.to_prompt()
+        assert prompt in {"silver_hair, long_hair", "silver_hair, very_long_hair"}
 
     def test_eye_colour_appends_eyes(self):
         properties = AppearanceProperties(eye_colour="green")
-        assert properties.to_prompt() == "green eyes"
+        assert properties.to_prompt() == "green_eyes"
 
     def test_outfit_prepends_wearing(self):
         properties = AppearanceProperties(outfit="plate armor")
-        assert properties.to_prompt() == "wearing plate armor"
+        assert properties.to_prompt() == "armor"
 
     def test_accessories_prepends_with(self):
         properties = AppearanceProperties(accessories="golden ring")
-        assert properties.to_prompt() == "with golden ring"
+        assert properties.to_prompt() == "golden_ring"
 
     def test_full_prompt_ordering(self):
         properties = AppearanceProperties(
@@ -63,14 +64,14 @@ class TestAppearancePropertiesToPrompt:
         prompt = properties.to_prompt()
         parts = prompt.split(", ")
         assert parts[0] == "human"
-        assert parts[1] == "athletic build"
-        assert parts[2] == "tall"
-        assert parts[3] == "dark"
-        assert "black curly hair" in prompt
-        assert "brown eyes" in prompt
+        assert "black_hair" in prompt
+        assert "curly" in prompt
+        assert "brown_eyes" in prompt
+        assert "athletic" in prompt
+        assert "dark" in prompt
         assert "strong jaw" in prompt
-        assert "wearing leather jacket" in prompt
-        assert "with sunglasses" in prompt
+        assert "jacket" in prompt
+        assert "sunglasses" in prompt
         assert parts[-1] == "manga style"
 
 

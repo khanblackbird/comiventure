@@ -14,12 +14,10 @@ from .prompt_composer import PromptComposer
 from .ip_adapter_bridge import IPAdapterBridge
 
 
-DEFAULT_STYLE = "cinematic lighting, hyper-detailed textures"
-
 DEFAULT_NEGATIVE = (
-    "lowres, (worst quality, bad quality:1.2), bad anatomy, sketch, "
-    "jpeg artefacts, signature, watermark, old, oldest, censored, "
-    "bar_censor, simple background"
+    "lowres, (worst_quality, bad_quality:1.2), bad_anatomy, sketch, "
+    "jpeg_artefacts, signature, watermark, old, oldest, censored, "
+    "bar_censor, simple_background"
 )
 
 

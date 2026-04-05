@@ -126,7 +126,7 @@ class ImageAnalyzer:
         return ""
 
     async def _extract_character(self, caption: str) -> CharacterAnalysis:
-        """Parse a caption into structured character fields via Llama."""
+        """Parse a caption into structured Danbooru-style tags via Llama."""
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -134,23 +134,33 @@ class ImageAnalyzer:
                     json={
                         "model": self.text_model,
                         "prompt": (
-                            "Extract character details from this "
-                            "image description. Respond ONLY in this "
-                            "exact format (leave blank if not visible):"
+                            "Extract character details from this image description "
+                            "as Danbooru-style tags (underscore format, e.g. "
+                            "long_hair, blue_eyes, school_uniform). "
+                            "Respond ONLY in this exact format "
+                            "(one tag per field, leave blank if not visible):"
                             "\n\n"
                             f"Description: {caption}\n\n"
-                            "species: (human, cat, wolf, fox, etc)\n"
-                            "body_type: (slim, muscular, curvy, etc)\n"
+                            "species: (human, elf, cat_ears, fox_ears, wolf_ears, "
+                            "anthro, kemonomimi)\n"
+                            "body_type: (slim, muscular, curvy, petite, tall)\n"
                             "height: (short, average, tall)\n"
-                            "skin_tone: (pale, tan, dark, fur colour)\n"
-                            "hair_style: (long, short, ponytail, etc)\n"
-                            "hair_colour: (colour)\n"
-                            "eye_colour: (colour)\n"
-                            "facial_features: (notable features)\n"
-                            "outfit: (what they are wearing)\n"
-                            "accessories: (jewellery, weapons, etc)\n"
-                            "pose: (body position)\n"
-                            "expression: (facial expression)"
+                            "skin_tone: (pale, tan, dark, brown_fur, white_fur)\n"
+                            "hair_style: (long_hair, short_hair, ponytail, twintails, "
+                            "braid, bob_cut, messy_hair, flowing_hair)\n"
+                            "hair_colour: (blonde_hair, black_hair, blue_hair, "
+                            "red_hair, white_hair, pink_hair, silver_hair)\n"
+                            "eye_colour: (blue_eyes, red_eyes, green_eyes, "
+                            "brown_eyes, yellow_eyes, purple_eyes)\n"
+                            "facial_features: (scar, freckles, pointed_ears)\n"
+                            "outfit: (school_uniform, dress, armor, hoodie, "
+                            "kimono, shirt, jacket — Danbooru tag)\n"
+                            "accessories: (glasses, hat, ribbon, scarf, "
+                            "choker, gloves, boots — Danbooru tag)\n"
+                            "pose: (standing, sitting, kneeling, running, "
+                            "crossed_arms, hand_on_hip, dynamic_pose)\n"
+                            "expression: (smile, angry, crying, surprised, "
+                            "serious, embarrassed, blush, looking_at_viewer)"
                         ),
                         "stream": False,
                     },
@@ -204,7 +214,24 @@ class ImageAnalyzer:
     def _parse_character(
         self, text: str, caption: str
     ) -> CharacterAnalysis:
-        """Parse LLM response into CharacterAnalysis."""
+        """Parse LLM response into CharacterAnalysis with tag normalization."""
+        from backend.generator.tag_vocabulary import (
+            normalize_tag, find_closest_tag,
+            SPECIES, HAIR_STYLES, HAIR_COLORS, EYE_COLORS,
+            CLOTHING, ACCESSORIES, POSES, EXPRESSIONS,
+        )
+
+        field_tag_sets = {
+            "species": SPECIES,
+            "hair_style": HAIR_STYLES,
+            "hair_colour": HAIR_COLORS,
+            "eye_colour": EYE_COLORS,
+            "outfit": CLOTHING,
+            "accessories": ACCESSORIES,
+            "pose": POSES,
+            "expression": EXPRESSIONS,
+        }
+
         fields = {
             "species": "", "body_type": "", "height": "",
             "skin_tone": "", "hair_style": "", "hair_colour": "",
@@ -216,12 +243,17 @@ class ImageAnalyzer:
             for field_name in fields:
                 if line.lower().startswith(f"{field_name}:"):
                     value = line.split(":", 1)[1].strip()
-                    # Strip quotes, parentheses
                     value = value.strip("()\"'")
                     if value.lower() not in (
                         "", "n/a", "none",
                         "not visible", "not applicable",
                     ):
+                        # Normalize to Danbooru tag if field has a tag set
+                        tag_set = field_tag_sets.get(field_name)
+                        if tag_set:
+                            value = find_closest_tag(value, tag_set)
+                        else:
+                            value = normalize_tag(value)
                         fields[field_name] = value
                     break
 

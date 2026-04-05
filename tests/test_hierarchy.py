@@ -137,7 +137,7 @@ class TestPromptComposition:
     def test_script_to_prompt_format(self, chain):
         chain["script"].update(action="rushes forward", emotion="panicked", source="manual")
         prompt = chain["script"].to_prompt()
-        assert "rushes forward" in prompt
+        assert "rushes_forward" in prompt
         assert "panicked" in prompt
 
     def test_script_prompt_excludes_dialogue(self, chain):
