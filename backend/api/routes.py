@@ -1422,11 +1422,17 @@ async def generate_panel_image(request: GeneratePanelRequest):
     # IP-Adapter conditioning from character reference banks
     ip_bridge = IPAdapterBridge(content_store) if content_store else None
     panel_gen = PanelGenerator(image_generator, ip_adapter_bridge=ip_bridge)
-    prompt = await panel_gen.compose_prompt(panel, characters)
-    # Compose negative from hierarchy (story + chapter + page + panel + characters)
-    # User override takes priority if provided
-    negative_prompt = request.negative_prompt or (
-        panel_gen.prompt_composer.compose_negative(panel, characters)
+    raw_prompt = await panel_gen.compose_prompt(panel, characters)
+
+    # Wrap with model-specific quality tags
+    from backend.generator.tag_vocabulary import format_prompt, format_negative
+    model_id = image_generator.model_id
+    prompt = format_prompt(raw_prompt.split(", "), model_id)
+
+    # Compose negative: model defaults + hierarchy negatives
+    hierarchy_negative = panel_gen.prompt_composer.compose_negative(panel, characters)
+    negative_prompt = request.negative_prompt or format_negative(
+        model_id, extra=hierarchy_negative.split(", "),
     )
 
     generation_params = {
@@ -1501,10 +1507,14 @@ async def inpaint_panel(request: InpaintRequest):
     if _generation_lock.locked():
         raise HTTPException(429, "Generation in progress, please wait")
 
-    # Inpainting uses natural language, not Danbooru tags.
-    # The mask constrains WHERE — the prompt describes WHAT to fill.
-    # Tags describe whole images, not regions.
-    inpaint_prompt = request.prompt
+    # Format inpaint prompt for the active model — tag models need tags,
+    # natural language models need natural language. Follows the model.
+    from backend.generator.tag_vocabulary import is_tag_model, normalize_tags
+    if image_generator and is_tag_model(image_generator.model_id):
+        normalized = normalize_tags(request.prompt)
+        inpaint_prompt = ", ".join(normalized) if normalized else request.prompt
+    else:
+        inpaint_prompt = request.prompt
 
     log.info("Inpainting panel=%s prompt=%s strength=%s",
              request.panel_id, inpaint_prompt, request.strength)

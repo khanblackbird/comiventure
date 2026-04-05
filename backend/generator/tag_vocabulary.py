@@ -127,10 +127,20 @@ ALL_TAGS = (
 )
 
 
-# ── Model-specific quality prefixes ───────────────────────────────────
+# ── Model profiles ────────────────────────────────────────────────────
+# Each model needs: prompt format, quality tags, negative tags.
+# The format determines how ALL prompts are built — generation,
+# inpainting, everything. It follows the model, not the operation.
 
-MODEL_QUALITY_TAGS = {
+DANBOORU = "danbooru"     # comma-separated underscore tags
+NATURAL = "natural"       # plain English sentences
+E621 = "e621"             # like Danbooru with some vocab differences
+PONY = "pony"             # Danbooru + score tags + source tags
+
+
+MODEL_PROFILES = {
     "Lykon/AAM_XL_AnimeMix": {
+        "format": DANBOORU,
         "positive": [
             "masterpiece", "best_quality", "amazing_quality",
         ],
@@ -140,6 +150,7 @@ MODEL_QUALITY_TAGS = {
         ],
     },
     "cagliostrolab/animagine-xl-3.1": {
+        "format": DANBOORU,
         "positive": [
             "masterpiece", "best_quality", "very_aesthetic",
             "absurdres", "newest",
@@ -149,6 +160,7 @@ MODEL_QUALITY_TAGS = {
         ],
     },
     "CitronLegacy/ponyDiffusionV6XL_Diffusers": {
+        "format": PONY,
         "positive": [
             "score_9", "score_8_up", "score_7_up",
             "score_6_up", "source_anime",
@@ -157,10 +169,29 @@ MODEL_QUALITY_TAGS = {
             "score_5", "score_4", "low_quality",
         ],
     },
+    "John6666/nova-furry-xl-il-v120-sdxl": {
+        "format": E621,
+        "positive": [
+            "masterpiece", "best_quality",
+        ],
+        "negative": [
+            "low_quality", "worst_quality", "text", "watermark",
+        ],
+    },
+    "John6666/autismmix-sdxl-autismmix-pony-sdxl": {
+        "format": DANBOORU,
+        "positive": [
+            "masterpiece", "best_quality",
+        ],
+        "negative": [
+            "(low_quality, worst_quality:1.4)", "text",
+            "signature", "watermark",
+        ],
+    },
 }
 
-# Fallback for custom checkpoints and unknown models
-DEFAULT_QUALITY_TAGS = {
+DEFAULT_PROFILE = {
+    "format": DANBOORU,
     "positive": ["masterpiece", "best_quality"],
     "negative": [
         "(low_quality, worst_quality:1.4)", "text",
@@ -169,9 +200,25 @@ DEFAULT_QUALITY_TAGS = {
 }
 
 
+def get_model_profile(model_id: str) -> dict:
+    """Get the full profile for a model (format + quality tags)."""
+    return MODEL_PROFILES.get(model_id, DEFAULT_PROFILE)
+
+
 def get_quality_tags(model_id: str) -> dict:
     """Get quality prefix/suffix tags for a specific model."""
-    return MODEL_QUALITY_TAGS.get(model_id, DEFAULT_QUALITY_TAGS)
+    profile = get_model_profile(model_id)
+    return {"positive": profile["positive"], "negative": profile["negative"]}
+
+
+def get_prompt_format(model_id: str) -> str:
+    """Get the prompt format for a model: 'danbooru', 'pony', 'e621', or 'natural'."""
+    return get_model_profile(model_id).get("format", DANBOORU)
+
+
+def is_tag_model(model_id: str) -> bool:
+    """Does this model expect tag-based prompts?"""
+    return get_prompt_format(model_id) != NATURAL
 
 
 # ── Tag normalization ─────────────────────────────────────────────────
@@ -306,3 +353,38 @@ def tags_for_script(
         tags.append(find_closest_tag(direction, FRAMING))
 
     return [t for t in tags if t]
+
+
+# ── Model-aware prompt formatting ─────────────────────────────────────
+
+def format_prompt(tags: list[str], model_id: str) -> str:
+    """Format a list of tags according to the model's expected format.
+
+    For tag-based models: comma-separated Danbooru tags with quality prefix.
+    For natural language models: join into a readable sentence.
+    For Pony: prepend score + source tags.
+    """
+    profile = get_model_profile(model_id)
+    fmt = profile.get("format", DANBOORU)
+    quality = profile.get("positive", [])
+
+    if fmt == NATURAL:
+        return ", ".join(tags)
+
+    # Danbooru / e621 / Pony: quality tags first, then content
+    return ", ".join(quality + tags)
+
+
+def format_negative(model_id: str, extra: list[str] = None) -> str:
+    """Build the full negative prompt for a model."""
+    profile = get_model_profile(model_id)
+    parts = list(profile.get("negative", []))
+    if extra:
+        parts.extend(extra)
+    seen = set()
+    unique = []
+    for p in parts:
+        if p not in seen:
+            seen.add(p)
+            unique.append(p)
+    return ", ".join(unique)
