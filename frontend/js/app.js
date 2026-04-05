@@ -769,6 +769,10 @@ class ComiventureApp {
         document.getElementById('btn-train-adapter').addEventListener('click', () => this._trainAdapter());
         document.getElementById('btn-review').addEventListener('click', () => this._reviewPanel());
         document.getElementById('btn-apply-review').addEventListener('click', () => this._applyReviewSuggestions());
+        document.getElementById('btn-analyze-panel').addEventListener('click', () => this._analyzePanel());
+        document.getElementById('btn-apply-to-scripts').addEventListener('click', () => this._applyPanelAnalysis('scripts'));
+        document.getElementById('btn-apply-to-character').addEventListener('click', () => this._applyPanelAnalysis('character'));
+        document.getElementById('btn-apply-to-both').addEventListener('click', () => this._applyPanelAnalysis('both'));
 
         // Chat actions
         document.getElementById('btn-suggest-scripts').addEventListener('click', () => this._suggestScripts());
@@ -1008,6 +1012,8 @@ class ComiventureApp {
                 feedbackEl.setAttribute('hidden', '');
             }
             document.getElementById('review-result').hidden = true;
+            document.getElementById('panel-analysis-result').hidden = true;
+            this._pendingPanelAnalysis = null;
             // Restore vote state for this panel
             const fb = this.selectedPanel?._feedback;
             this._updateVoteButtons('btn-thumbs-up', 'btn-thumbs-down',
@@ -1843,6 +1849,113 @@ class ComiventureApp {
         } finally {
             applyBtn.disabled = false;
             applyBtn.textContent = 'Apply Suggestions';
+        }
+    }
+
+    async _analyzePanel() {
+        const panel = this.selectedPanel;
+        if (!panel || !panel.image_hash) return;
+
+        const btn = document.getElementById('btn-analyze-panel');
+        btn.disabled = true;
+        btn.textContent = 'Analyzing...';
+
+        try {
+            const result = await api._post(`/api/panels/${panel.panel_id}/analyze`, {});
+            this._pendingPanelAnalysis = result.analysis;
+
+            const analysisEl = document.getElementById('panel-analysis-result');
+            analysisEl.hidden = false;
+            document.getElementById('panel-analysis-caption').textContent =
+                `AI sees: ${result.raw_caption}`;
+
+            // Show analysis fields with current script values for comparison
+            const fieldsEl = document.getElementById('panel-analysis-fields');
+            fieldsEl.innerHTML = '';
+
+            const charFields = result.analysis.character;
+            const scriptMap = {pose: 'pose', expression: 'emotion', outfit: 'outfit'};
+            for (const [key, value] of Object.entries(charFields)) {
+                if (!value) continue;
+                const row = document.createElement('div');
+                row.className = 'analysis-field';
+                const label = document.createElement('strong');
+                label.textContent = key.replace(/_/g, ' ') + ': ';
+                row.appendChild(label);
+                const span = document.createElement('span');
+                span.textContent = value;
+                // Highlight script-mappable fields
+                if (scriptMap[key]) {
+                    span.style.color = '#8cf';
+                    span.title = `Maps to script.${scriptMap[key]}`;
+                }
+                row.appendChild(span);
+                fieldsEl.appendChild(row);
+            }
+        } catch (error) {
+            console.error('Panel analysis failed:', error);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Analyze';
+        }
+    }
+
+    async _applyPanelAnalysis(target) {
+        const panel = this.selectedPanel;
+        if (!panel || !this._pendingPanelAnalysis) return;
+
+        const btnId = {
+            scripts: 'btn-apply-to-scripts',
+            character: 'btn-apply-to-character',
+            both: 'btn-apply-to-both',
+        }[target];
+        const btn = document.getElementById(btnId);
+        btn.disabled = true;
+        btn.textContent = 'Applying...';
+
+        try {
+            const result = await api._post(
+                `/api/panels/${panel.panel_id}/apply-analysis`,
+                {
+                    target,
+                    analysis: this._pendingPanelAnalysis,
+                }
+            );
+
+            // Update local script state from response
+            for (const updated of result.updated_scripts) {
+                const script = panel.scripts[updated.character_id];
+                if (script) Object.assign(script, updated.script);
+            }
+
+            // Update local character state from response
+            for (const updated of result.updated_characters) {
+                const char = this.characters[updated.character_id];
+                if (char && char.appearance) {
+                    char.appearance.properties = updated.appearance;
+                }
+            }
+
+            this._renderPanelScripts();
+
+            const summary = [];
+            if (result.updated_scripts.length) {
+                summary.push(`${result.updated_scripts.length} script(s) updated`);
+            }
+            if (result.updated_characters.length) {
+                summary.push(`${result.updated_characters.length} character(s) updated`);
+            }
+            this._addChatMessage('Analysis', summary.join(', ') || 'No changes', 'system');
+
+        } catch (error) {
+            console.error('Apply panel analysis failed:', error);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = {
+                scripts: 'Apply to Scripts',
+                character: 'Apply to Character',
+                both: 'Apply Both',
+            }[target];
         }
     }
 

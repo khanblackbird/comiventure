@@ -1673,6 +1673,172 @@ async def review_panel_image(panel_id: str):
     }
 
 
+@router.post("/api/panels/{panel_id}/analyze")
+async def analyze_panel_image(panel_id: str):
+    """Analyze a panel's generated image — returns per-character structured fields.
+
+    This closes the description loop:
+      generate → analyze what's actually in the image → compare to scripts
+      → apply corrections to scripts/character → next generation improves
+
+    The analysis results can be applied to:
+    1. Panel scripts (pose, action, emotion, outfit, direction)
+    2. Character appearance (species, hair, eyes, etc.)
+    Both targets feed the adversarial adapter on the next feedback cycle.
+    """
+    panel = _require_panel(panel_id)
+    if not panel.image_hash:
+        raise HTTPException(400, "Panel has no image to analyze")
+    if not content_store:
+        raise HTTPException(503, "Content store not available")
+
+    image_bytes = content_store.retrieve(panel.image_hash)
+    if not image_bytes:
+        raise HTTPException(404, "Image not found in content store")
+
+    if image_generator and image_generator.pipeline:
+        if _HAS_TORCH:
+            torch.cuda.empty_cache()
+        gc.collect()
+
+    from backend.generator.image_analyzer import ImageAnalyzer
+    analyzer = ImageAnalyzer()
+    result = await analyzer.analyze(image_bytes)
+
+    # Build per-character analysis by matching script fields
+    characters_in_panel = []
+    for char_id in panel.scripts:
+        character = story.get_character(char_id)
+        if not character:
+            continue
+        script = panel.scripts[char_id]
+        characters_in_panel.append({
+            "character_id": char_id,
+            "name": character.name,
+            "current_script": script.to_dict(),
+            "current_appearance": character.appearance.properties.to_dict(),
+        })
+
+    # Store on panel for the training loop
+    panel._last_analysis = {
+        "character": result.character.__dict__,
+        "art_style": result.art_style.__dict__,
+        "raw_caption": result.raw_caption,
+    }
+
+    return {
+        "panel_id": panel_id,
+        "raw_caption": result.raw_caption,
+        "analysis": {
+            "character": {
+                "species": result.character.species,
+                "body_type": result.character.body_type,
+                "height": result.character.height,
+                "skin_tone": result.character.skin_tone,
+                "hair_style": result.character.hair_style,
+                "hair_colour": result.character.hair_colour,
+                "eye_colour": result.character.eye_colour,
+                "facial_features": result.character.facial_features,
+                "outfit": result.character.outfit,
+                "accessories": result.character.accessories,
+                "pose": result.character.pose,
+                "expression": result.character.expression,
+            },
+            "art_style": {
+                "art_style": result.art_style.art_style,
+                "colour_palette": result.art_style.colour_palette,
+                "line_style": result.art_style.line_style,
+                "rendering": result.art_style.rendering,
+                "genre_hints": result.art_style.genre_hints,
+            },
+        },
+        "characters_in_panel": characters_in_panel,
+    }
+
+
+class ApplyPanelAnalysisRequest(BaseModel):
+    target: str = "scripts"  # "scripts", "character", "both"
+    character_id: Optional[str] = None
+    analysis: dict = {}
+
+
+@router.post("/api/panels/{panel_id}/apply-analysis")
+async def apply_panel_analysis(panel_id: str, request: ApplyPanelAnalysisRequest):
+    """Apply analysis results to panel scripts and/or character appearance.
+
+    target="scripts"   → update the panel's scripts (pose, action, emotion, etc.)
+    target="character"  → update character appearance properties
+    target="both"       → update both
+    """
+    _require_story()
+    panel = _require_panel(panel_id)
+    char_analysis = request.analysis.get("character", {})
+    art_analysis = request.analysis.get("art_style", {})
+    updated_scripts = []
+    updated_characters = []
+
+    # Map analysis fields to script fields
+    script_field_map = {
+        "pose": "pose",
+        "expression": "emotion",
+        "outfit": "outfit",
+    }
+
+    target_char_ids = (
+        [request.character_id] if request.character_id
+        else list(panel.scripts.keys())
+    )
+
+    if request.target in ("scripts", "both"):
+        for char_id in target_char_ids:
+            script = panel.get_script(char_id)
+            if not script:
+                continue
+            updates = {}
+            for analysis_key, script_key in script_field_map.items():
+                value = char_analysis.get(analysis_key, "")
+                if value:
+                    updates[script_key] = value
+            if updates:
+                script.update(**updates, source="analysis")
+                updated_scripts.append({
+                    "character_id": char_id,
+                    "updates": updates,
+                    "script": script.to_dict(),
+                })
+
+    if request.target in ("character", "both"):
+        for char_id in target_char_ids:
+            character = story.get_character(char_id)
+            if not character:
+                continue
+            appearance_fields = {}
+            for field_name in (
+                "species", "body_type", "height", "skin_tone",
+                "hair_style", "hair_colour", "eye_colour",
+                "facial_features", "outfit", "accessories",
+            ):
+                value = char_analysis.get(field_name, "")
+                if value:
+                    appearance_fields[field_name] = value
+            if art_analysis.get("art_style"):
+                appearance_fields["art_style_notes"] = art_analysis["art_style"]
+            if appearance_fields:
+                character.update_appearance(properties=appearance_fields)
+                updated_characters.append({
+                    "character_id": char_id,
+                    "updates": appearance_fields,
+                    "appearance": character.appearance.properties.to_dict(),
+                })
+
+    return {
+        "panel_id": panel_id,
+        "target": request.target,
+        "updated_scripts": updated_scripts,
+        "updated_characters": updated_characters,
+    }
+
+
 @router.post("/api/caption")
 async def caption_image_endpoint(content_hash: str):
     """Caption any image in the content store using LLaVA."""
