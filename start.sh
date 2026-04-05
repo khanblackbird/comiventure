@@ -119,39 +119,43 @@ check_gpu() {
         return
     fi
 
+    # Test PyTorch CUDA, not just nvidia-smi. nvidia-smi can succeed
+    # while PyTorch fails due to driver/toolkit version mismatches.
+    local test_cmd='python -c "import torch; assert torch.cuda.is_available(), \"no cuda\"; print(torch.cuda.get_device_name(0))"'
+
     local result
-    result=$(sudo docker run --rm --gpus all nvidia/cuda:12.8.0-runtime-ubuntu22.04 \
-        nvidia-smi --query-gpu=name --format=csv,noheader 2>&1)
+    result=$(sudo docker run --rm --gpus all comiventure-app \
+        bash -c "$test_cmd" 2>&1)
     local rc=$?
 
+    # If no image yet, fall back to nvidia-smi check
+    if [ $rc -ne 0 ] && ! sudo docker images -q comiventure-app 2>/dev/null | grep -q .; then
+        result=$(sudo docker run --rm --gpus all nvidia/cuda:12.8.0-runtime-ubuntu22.04 \
+            nvidia-smi --query-gpu=name --format=csv,noheader 2>&1)
+        rc=$?
+    fi
+
     if [ $rc -ne 0 ]; then
-        warn "CUDA not working inside containers"
-        echo "     This is usually a nvidia-container-toolkit / driver mismatch."
+        warn "PyTorch CUDA not working inside containers"
         echo "     Checking if privileged mode helps..."
 
-        result=$(sudo docker run --rm --gpus all --privileged nvidia/cuda:12.8.0-runtime-ubuntu22.04 \
-            nvidia-smi --query-gpu=name --format=csv,noheader 2>&1)
+        result=$(sudo docker run --rm --gpus all --privileged comiventure-app \
+            bash -c "$test_cmd" 2>&1)
         rc=$?
 
         if [ $rc -eq 0 ]; then
+            info "PyTorch CUDA works with privileged mode ($result)"
             if ! grep -q "privileged: true" docker-compose.yml; then
-                echo "     Fix: adding 'privileged: true' to docker-compose.yml"
+                echo "     Adding 'privileged: true' to docker-compose.yml"
                 sed -i '/^  app:/a\    privileged: true' docker-compose.yml
-            else
-                info "privileged: true already set — should be fine"
             fi
         else
-            fail "CUDA fails even with privileged mode"
+            fail "PyTorch CUDA fails even with privileged mode"
             echo "     Try: sudo systemctl restart docker, or reboot"
             echo "     Image generation will be disabled"
         fi
     else
-        info "CUDA OK inside containers ($result)"
-        # CUDA works without privileged — remove workaround if present
-        if grep -q "privileged: true" docker-compose.yml; then
-            echo "     CUDA working without privileged mode — removing workaround"
-            sed -i '/^    privileged: true$/d' docker-compose.yml
-        fi
+        info "PyTorch CUDA OK ($result)"
     fi
 }
 
