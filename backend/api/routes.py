@@ -1501,9 +1501,14 @@ async def inpaint_panel(request: InpaintRequest):
     if _generation_lock.locked():
         raise HTTPException(429, "Generation in progress, please wait")
 
-    log.info("Inpainting panel=%s prompt=%s source=%s strength=%s",
+    # Normalize inpaint prompt through tag vocabulary
+    from backend.generator.tag_vocabulary import normalize_tags
+    normalized = normalize_tags(request.prompt)
+    inpaint_prompt = ", ".join(normalized) if normalized else request.prompt
+
+    log.info("Inpainting panel=%s prompt=%s normalized=%s strength=%s",
              request.panel_id, request.prompt,
-             panel.image_hash[:16], request.strength)
+             inpaint_prompt, request.strength)
 
     from backend.generator.panel_generator import PanelGenerator
     from backend.generator.ip_adapter_bridge import IPAdapterBridge
@@ -1522,7 +1527,7 @@ async def inpaint_panel(request: InpaintRequest):
         content_hash = await image_generator.inpaint(
             image_hash=panel.image_hash,
             mask_base64=request.mask_data,
-            prompt=request.prompt,
+            prompt=inpaint_prompt,
             negative_prompt=negative_prompt,
             steps=request.steps,
             strength=request.strength,
