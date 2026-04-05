@@ -4,7 +4,7 @@
 # Usage:
 #   ./start.sh              Start server (no proxy)
 #   ./start.sh proxy        Start server + WARP proxy for Civitai
-#   ./start.sh restart      Restart the app container
+#   ./start.sh restart      Restart the app container (with checks)
 #   ./start.sh stop         Stop everything
 #   ./start.sh logs         Tail the app logs
 #   ./start.sh test         Run backend tests (fast, no browser)
@@ -21,7 +21,7 @@ set -e
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 info()  { echo -e "${GREEN}[OK]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[!!]${NC}  $*"; }
@@ -29,7 +29,7 @@ fail()  { echo -e "${RED}[FAIL]${NC} $*"; }
 step()  { echo -e "\n--- $* ---"; }
 
 # ---------------------------------------------------------------------------
-# System checks
+# Pre-build checks (no container image needed)
 # ---------------------------------------------------------------------------
 
 check_docker() {
@@ -56,6 +56,17 @@ check_nvidia_driver() {
     gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
     info "NVIDIA driver OK ($gpu_name)"
     return 0
+}
+
+check_ram() {
+    local total_kb
+    total_kb=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+    local total_gb=$((total_kb / 1024 / 1024))
+    if [ "$total_gb" -lt 12 ]; then
+        warn "Low RAM: ${total_gb}GB — SDXL needs 12GB+ (RAM + swap)"
+    else
+        info "RAM OK (${total_gb}GB)"
+    fi
 }
 
 check_swap() {
@@ -106,12 +117,27 @@ check_ollama_installed() {
             info "Ollama process running"
         else
             warn "Ollama installed but not running — try: ollama serve"
+            return
         fi
+        # Check required models are pulled
+        local models
+        models=$(ollama list 2>/dev/null | awk 'NR>1{print $1}' || true)
+        for required in llama3:8b llava:7b; do
+            if echo "$models" | grep -q "^${required}"; then
+                info "Ollama model: $required"
+            else
+                warn "Ollama model '$required' not pulled — run: ollama pull $required"
+            fi
+        done
     else
         warn "Ollama not installed — character chat and LLM features will not work"
         echo "     Install: curl -fsSL https://ollama.com/install.sh | sh"
     fi
 }
+
+# ---------------------------------------------------------------------------
+# Post-build checks (need the container image)
+# ---------------------------------------------------------------------------
 
 check_gpu() {
     # Skip if no driver on host
@@ -119,21 +145,18 @@ check_gpu() {
         return
     fi
 
-    # Test PyTorch CUDA, not just nvidia-smi. nvidia-smi can succeed
-    # while PyTorch fails due to driver/toolkit version mismatches.
+    # Must have the app image — caller ensures maybe_rebuild ran first
+    if ! sudo docker images -q comiventure-app 2>/dev/null | grep -q .; then
+        warn "No app image yet — skipping PyTorch CUDA check"
+        return
+    fi
+
     local test_cmd='python -c "import torch; assert torch.cuda.is_available(), \"no cuda\"; print(torch.cuda.get_device_name(0))"'
 
     local result
     result=$(sudo docker run --rm --gpus all comiventure-app \
         bash -c "$test_cmd" 2>&1)
     local rc=$?
-
-    # If no image yet, fall back to nvidia-smi check
-    if [ $rc -ne 0 ] && ! sudo docker images -q comiventure-app 2>/dev/null | grep -q .; then
-        result=$(sudo docker run --rm --gpus all nvidia/cuda:12.8.0-runtime-ubuntu22.04 \
-            nvidia-smi --query-gpu=name --format=csv,noheader 2>&1)
-        rc=$?
-    fi
 
     if [ $rc -ne 0 ]; then
         warn "PyTorch CUDA not working inside containers"
@@ -237,25 +260,47 @@ check_git() {
 # ---------------------------------------------------------------------------
 
 wait_for_server() {
-    step "Waiting for server on port 8000"
+    step "Waiting for server"
     local elapsed=0
-    while [ $elapsed -lt 30 ]; do
+    while [ $elapsed -lt 60 ]; do
         if curl -sf http://localhost:8000/ -o /dev/null 2>/dev/null; then
-            info "Server ready (${elapsed}s)"
+            info "Server responding (${elapsed}s)"
             return 0
         fi
         sleep 1
         elapsed=$((elapsed + 1))
     done
-    fail "Server failed to start within 30 seconds"
+    fail "Server failed to start within 60 seconds"
     return 1
 }
 
-check_ollama() {
+check_ollama_reachable() {
     if curl -sf http://localhost:11434/ -o /dev/null 2>/dev/null; then
         info "Ollama reachable on port 11434"
     else
         warn "Ollama not reachable on port 11434 — LLM features may not work"
+    fi
+}
+
+verify_gpu_loaded() {
+    # Check the container logs for the GPU loaded / disabled message
+    local logs
+    logs=$(sudo docker compose logs --tail=30 app 2>/dev/null)
+
+    if echo "$logs" | grep -q "Image generator loaded on"; then
+        local gpu_name
+        gpu_name=$(echo "$logs" | grep "Image generator loaded on" | sed 's/.*loaded on //')
+        info "Image generator loaded ($gpu_name)"
+    elif echo "$logs" | grep -q "No CUDA GPU found"; then
+        fail "Image generator FAILED — No CUDA GPU found"
+        echo "     PyTorch CUDA init failed inside the running container."
+        echo "     Check: docker-compose.yml has 'privileged: true'"
+        echo "     Check: sudo docker compose logs app | grep -i cuda"
+        echo "     Try:   sudo docker compose down && ./start.sh"
+    elif echo "$logs" | grep -q "PyTorch not installed"; then
+        fail "Image generator FAILED — PyTorch not installed"
+    else
+        warn "Could not determine image generator status — check logs"
     fi
 }
 
@@ -271,30 +316,39 @@ ensure_clean() {
 }
 
 # ---------------------------------------------------------------------------
-# Startup sequence (shared between default and proxy modes)
+# Startup sequences
 # ---------------------------------------------------------------------------
 
 run_preflight() {
     step "System checks"
     check_docker
     check_nvidia_driver || true
+    check_ram
     check_disk
     check_swap
     check_ollama_installed
-    check_gpu
 
     step "Git status"
     check_git
 
     step "Build"
     maybe_rebuild
+
+    # GPU check AFTER build — needs the app image for PyTorch test
+    step "GPU check"
+    check_gpu
 }
 
 run_post_startup() {
     wait_for_server || true
 
     step "Connection checks"
-    check_ollama
+    check_ollama_reachable
+
+    # Wait a moment for the startup event to fire, then verify
+    sleep 3
+    step "Verifying image generator"
+    verify_gpu_loaded
 }
 
 # ---------------------------------------------------------------------------
@@ -331,9 +385,22 @@ case "${1:-}" in
         ;;
 
     restart)
-        echo "Restarting app container..."
-        sudo docker compose restart app
-        echo "Restarted. Tailing logs..."
+        step "Pre-restart checks"
+        check_docker
+        check_nvidia_driver || true
+
+        # Rebuild if needed before restart
+        step "Build"
+        maybe_rebuild
+
+        step "Restarting"
+        sudo docker compose down
+        sudo docker compose up -d
+
+        run_post_startup
+
+        echo ""
+        echo "Server: http://localhost:8000"
         sudo docker compose logs -f app
         ;;
 
@@ -411,7 +478,7 @@ case "${1:-}" in
         echo ""
         echo "  (no args)     Start server without proxy"
         echo "  proxy         Start server + WARP proxy for Civitai"
-        echo "  restart       Restart the app container"
+        echo "  restart       Restart the app container (with checks)"
         echo "  stop          Stop server and disconnect proxy"
         echo "  logs          Tail the app logs"
         echo "  test          Run backend tests (fast)"
