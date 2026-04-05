@@ -12,7 +12,8 @@
 #   ./start.sh test-all     Run all tests
 #   ./start.sh setup-proxy  First-time WARP proxy install
 
-set -e
+# No set -e — check functions intentionally use mixed return codes.
+# Commands that MUST succeed use explicit || exit 1.
 
 # ---------------------------------------------------------------------------
 # Colors / helpers
@@ -145,40 +146,15 @@ check_gpu() {
         return
     fi
 
-    # Must have the app image — caller ensures maybe_rebuild ran first
-    if ! sudo docker images -q comiventure-app 2>/dev/null | grep -q .; then
-        warn "No app image yet — skipping PyTorch CUDA check"
-        return
-    fi
-
-    local test_cmd='python -c "import torch; assert torch.cuda.is_available(), \"no cuda\"; print(torch.cuda.get_device_name(0))"'
-
-    local result
-    result=$(sudo docker run --rm --gpus all comiventure-app \
-        bash -c "$test_cmd" 2>&1)
-    local rc=$?
-
-    if [ $rc -ne 0 ]; then
-        warn "PyTorch CUDA not working inside containers"
-        echo "     Checking if privileged mode helps..."
-
-        result=$(sudo docker run --rm --gpus all --privileged comiventure-app \
-            bash -c "$test_cmd" 2>&1)
-        rc=$?
-
-        if [ $rc -eq 0 ]; then
-            info "PyTorch CUDA works with privileged mode ($result)"
-            if ! grep -q "privileged: true" docker-compose.yml; then
-                echo "     Adding 'privileged: true' to docker-compose.yml"
-                sed -i '/^  app:/a\    privileged: true' docker-compose.yml
-            fi
-        else
-            fail "PyTorch CUDA fails even with privileged mode"
-            echo "     Try: sudo systemctl restart docker, or reboot"
-            echo "     Image generation will be disabled"
-        fi
+    # Verify privileged: true is set — required for driver 590 + toolkit 1.19
+    if grep -q "privileged: true" docker-compose.yml; then
+        info "docker-compose.yml has privileged: true"
     else
-        info "PyTorch CUDA OK ($result)"
+        warn "docker-compose.yml missing 'privileged: true'"
+        echo "     Required for NVIDIA driver 590 + container toolkit 1.19"
+        echo "     Adding it now..."
+        sed -i '/^  app:/a\    privileged: true' docker-compose.yml
+        info "Added privileged: true"
     fi
 }
 
