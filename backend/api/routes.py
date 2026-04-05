@@ -1501,14 +1501,13 @@ async def inpaint_panel(request: InpaintRequest):
     if _generation_lock.locked():
         raise HTTPException(429, "Generation in progress, please wait")
 
-    # Normalize inpaint prompt through tag vocabulary
-    from backend.generator.tag_vocabulary import normalize_tags
-    normalized = normalize_tags(request.prompt)
-    inpaint_prompt = ", ".join(normalized) if normalized else request.prompt
+    # Inpainting uses natural language, not Danbooru tags.
+    # The mask constrains WHERE — the prompt describes WHAT to fill.
+    # Tags describe whole images, not regions.
+    inpaint_prompt = request.prompt
 
-    log.info("Inpainting panel=%s prompt=%s normalized=%s strength=%s",
-             request.panel_id, request.prompt,
-             inpaint_prompt, request.strength)
+    log.info("Inpainting panel=%s prompt=%s strength=%s",
+             request.panel_id, inpaint_prompt, request.strength)
 
     from backend.generator.panel_generator import PanelGenerator
     from backend.generator.ip_adapter_bridge import IPAdapterBridge
