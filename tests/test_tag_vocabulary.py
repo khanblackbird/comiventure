@@ -619,8 +619,8 @@ class TestGetFieldSuggestions:
 
 # ── Panel discovered tags ────────────────────────────────────────────
 
-class TestDiscoveredTags:
-    """Tags discovered via edits/analysis that aren't in scripts."""
+class TestTagObservations:
+    """Tag observations — hashmaps connecting discovered tags to their context."""
 
     def _make_panel_with_script(self):
         from backend.models import Panel, Script
@@ -631,54 +631,122 @@ class TestDiscoveredTags:
         panel.add_script(script)
         return panel
 
-    def test_add_discovered_tags(self):
+    def test_observe_tags_creates_observations(self):
         panel = self._make_panel_with_script()
-        panel.add_discovered_tags(["golden_brooch", "scar"])
+        obs = panel.observe_tags(
+            tags=["golden_brooch", "scar"],
+            source="inpaint",
+            source_tags=["standing", "smile"],
+            model_id="test_model",
+        )
+        assert len(obs) == 2
+        assert obs[0].observed_tag == "golden_brooch"
+        assert obs[0].source == "inpaint"
+        assert obs[0].source_tags == ["standing", "smile"]
+        assert obs[0].model_id == "test_model"
+
+    def test_discovered_tags_property(self):
+        panel = self._make_panel_with_script()
+        panel.observe_tags(["golden_brooch", "scar"], source="review")
         assert "golden_brooch" in panel.discovered_tags
         assert "scar" in panel.discovered_tags
 
     def test_deduplicates(self):
         panel = self._make_panel_with_script()
-        panel.add_discovered_tags(["golden_brooch"])
-        panel.add_discovered_tags(["golden_brooch", "scar"])
+        panel.observe_tags(["golden_brooch"], source="inpaint")
+        panel.observe_tags(["golden_brooch", "scar"], source="review")
         assert panel.discovered_tags.count("golden_brooch") == 1
         assert "scar" in panel.discovered_tags
 
     def test_excludes_existing_script_tags(self):
         panel = self._make_panel_with_script()
-        # "standing" is already in the script
-        panel.add_discovered_tags(["standing", "golden_brooch"])
+        panel.observe_tags(["standing", "golden_brooch"], source="review")
         assert "standing" not in panel.discovered_tags
         assert "golden_brooch" in panel.discovered_tags
 
     def test_included_in_to_prompt(self):
         panel = self._make_panel_with_script()
         panel.shot_type = "close-up"
-        panel.add_discovered_tags(["golden_brooch"])
+        panel.observe_tags(["golden_brooch"], source="inpaint")
         prompt = panel.to_prompt()
         assert "close-up" in prompt
         assert "golden_brooch" in prompt
 
-    def test_included_in_to_dict(self):
+    def test_get_tag_map(self):
+        panel = self._make_panel_with_script()
+        panel.observe_tags(
+            ["golden_brooch"],
+            source="inpaint",
+            model_id="animagine",
+            confidence=0.9,
+        )
+        tag_map = panel.get_tag_map()
+        assert "golden_brooch" in tag_map
+        assert tag_map["golden_brooch"].source == "inpaint"
+        assert tag_map["golden_brooch"].model_id == "animagine"
+        assert tag_map["golden_brooch"].confidence == 0.9
+
+    def test_get_observations_by_source(self):
+        panel = self._make_panel_with_script()
+        panel.observe_tags(["brooch"], source="inpaint")
+        panel.observe_tags(["scar"], source="review")
+        inpaint_obs = panel.get_observations_by_source("inpaint")
+        review_obs = panel.get_observations_by_source("review")
+        assert len(inpaint_obs) == 1
+        assert inpaint_obs[0].observed_tag == "brooch"
+        assert len(review_obs) == 1
+        assert review_obs[0].observed_tag == "scar"
+
+    def test_serialization_round_trip(self):
+        from backend.models.panel import TagObservation
+        panel = self._make_panel_with_script()
+        panel.observe_tags(
+            ["golden_brooch"],
+            source="review",
+            source_tags=["smile", "standing"],
+            model_id="test_model",
+            adapter_hash="abc123",
+            confidence=0.85,
+        )
+        d = panel.to_dict()
+        assert len(d["tag_observations"]) == 1
+        obs_dict = d["tag_observations"][0]
+        restored = TagObservation.from_dict(obs_dict)
+        assert restored.observed_tag == "golden_brooch"
+        assert restored.source == "review"
+        assert restored.source_tags == ["smile", "standing"]
+        assert restored.model_id == "test_model"
+        assert restored.adapter_hash == "abc123"
+        assert restored.confidence == 0.85
+
+    def test_context_hash_populated(self):
+        panel = self._make_panel_with_script()
+        obs = panel.observe_tags(["brooch"], source="inpaint")
+        assert obs[0].context_hash != ""
+        assert len(obs[0].context_hash) == 12
+
+    def test_backwards_compat_add_discovered_tags(self):
         panel = self._make_panel_with_script()
         panel.add_discovered_tags(["scar", "necklace"])
-        d = panel.to_dict()
-        assert d["discovered_tags"] == ["scar", "necklace"]
-
-    def test_included_in_context(self):
-        panel = self._make_panel_with_script()
-        panel.add_discovered_tags(["golden_brooch"])
-        ctx = panel._own_context()
-        assert "golden_brooch" in ctx["panel"]["discovered_tags"]
+        assert "scar" in panel.discovered_tags
+        assert "necklace" in panel.discovered_tags
+        assert panel.tag_observations[0].source == "unknown"
 
     def test_empty_by_default(self):
         from backend.models import Panel
         panel = Panel("pan-1")
         assert panel.discovered_tags == []
-        assert panel.to_dict()["discovered_tags"] == []
+        assert panel.tag_observations == []
 
     def test_empty_tags_ignored(self):
         panel = self._make_panel_with_script()
-        panel.add_discovered_tags(["", "  ", "valid_tag"])
+        panel.observe_tags(["", "  ", "valid_tag"], source="review")
         assert "valid_tag" in panel.discovered_tags
         assert "" not in panel.discovered_tags
+
+    def test_observations_in_context(self):
+        panel = self._make_panel_with_script()
+        panel.observe_tags(["brooch"], source="inpaint")
+        ctx = panel._own_context()
+        assert len(ctx["panel"]["tag_observations"]) == 1
+        assert ctx["panel"]["tag_observations"][0]["observed_tag"] == "brooch"

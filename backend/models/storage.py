@@ -168,7 +168,19 @@ def _rebuild_story(data: dict) -> Story:
                 )
                 panel.source = panel_data.get("source", "empty")
                 panel.negative_prompt = panel_data.get("negative_prompt", "")
-                panel.discovered_tags = panel_data.get("discovered_tags", [])
+                # Load tag observations (full context) or flat list (old format)
+                from backend.models.panel import TagObservation
+                obs_data = panel_data.get("tag_observations", [])
+                if obs_data:
+                    panel.tag_observations = [
+                        TagObservation.from_dict(o) for o in obs_data
+                    ]
+                else:
+                    # Backwards compat: old files have flat discovered_tags
+                    for tag in panel_data.get("discovered_tags", []):
+                        panel.tag_observations.append(
+                            TagObservation(observed_tag=tag, source="legacy")
+                        )
 
                 # Rebuild scripts
                 for character_id, script_data in panel_data.get("scripts", {}).items():

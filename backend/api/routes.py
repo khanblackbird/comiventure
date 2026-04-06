@@ -1563,17 +1563,31 @@ async def inpaint_panel(request: InpaintRequest):
 
     panel.update_image(content_hash, source="ai")
 
-    # Inpaint prompt describes what was ADDED — store as discovered tags
+    # Inpaint prompt describes what was ADDED — observe as tag mappings
     # so training pairs reflect what's actually in the image.
     from backend.generator.tag_vocabulary import normalize_tags as _norm_tags
     edit_tags = _norm_tags(request.prompt)
     if edit_tags:
-        panel.add_discovered_tags(edit_tags)
+        # Source tags = what was in the panel before the edit
+        source_tags = []
+        for script in panel.scripts.values():
+            source_tags.extend(script.to_prompt().split(", "))
+        source_tags = [t for t in source_tags if t]
+
+        adapter = _get_adapter()
+        panel.observe_tags(
+            tags=edit_tags,
+            source="inpaint",
+            source_tags=source_tags,
+            model_id=image_generator.model_id if image_generator else "",
+            adapter_hash=adapter.adapter_hash or "" if adapter else "",
+        )
 
     return {
         "content_hash": content_hash,
         "image_url": f"/api/content/{content_hash}",
         "discovered_tags": panel.discovered_tags,
+        "tag_observations": [o.to_dict() for o in panel.tag_observations],
         "panel": panel.to_dict(),
     }
 
@@ -1782,14 +1796,31 @@ async def analyze_panel_image(panel_id: str):
 
     novel_tags = [t for t in analysis_tags if t and t not in script_tags]
     if novel_tags:
-        panel.add_discovered_tags(novel_tags)
-        log.info("Panel %s: discovered %d novel tags: %s",
-                 panel_id, len(novel_tags), novel_tags)
+        # Source tags = what the generation prompt contained
+        source_tags = list(script_tags)
+        adapter = _get_adapter()
+
+        # Get review confidence if available
+        review = getattr(panel, '_last_review', {})
+        confidence = review.get("score", 0.7)
+
+        observations = panel.observe_tags(
+            tags=novel_tags,
+            source="review",
+            source_tags=source_tags,
+            model_id=image_generator.model_id if image_generator else "",
+            adapter_hash=adapter.adapter_hash or "" if adapter else "",
+            confidence=confidence,
+        )
+        log.info("Panel %s: observed %d novel tags: %s",
+                 panel_id, len(observations),
+                 [o.observed_tag for o in observations])
 
     return {
         "panel_id": panel_id,
         "raw_caption": result.raw_caption,
         "discovered_tags": novel_tags,
+        "tag_observations": [o.to_dict() for o in panel.tag_observations],
         "analysis": {
             "character": {
                 "species": result.character.species,
