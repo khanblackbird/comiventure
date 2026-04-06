@@ -1466,13 +1466,26 @@ async def update_script(script_id: str, request: UpdateScriptRequest):
     script = story.lookup_as(script_id, Script)
     if not script:
         raise HTTPException(404, f"Script {script_id} not found")
+
+    # Translate natural language → Danbooru tags via Llama.
+    # The LLM sees the full hierarchy context (character, chapter, page)
+    # so it translates appropriately — "lying on the bed" in a romantic
+    # scene vs a horror scene produces different tags.
+    translated = await _translate_script_fields(script, {
+        "pose": request.pose,
+        "action": request.action,
+        "emotion": request.emotion,
+        "outfit": request.outfit,
+        "direction": request.direction,
+    })
+
     script.update(
         dialogue=request.dialogue,
-        action=request.action,
-        direction=request.direction,
-        emotion=request.emotion,
-        pose=request.pose,
-        outfit=request.outfit,
+        action=translated.get("action") or request.action,
+        direction=translated.get("direction") or request.direction,
+        emotion=translated.get("emotion") or request.emotion,
+        pose=translated.get("pose") or request.pose,
+        outfit=translated.get("outfit") or request.outfit,
         negative_prompt=request.negative_prompt,
         source=request.source,
     )
@@ -2764,6 +2777,99 @@ def _require_panel(panel_id: str) -> Panel:
     if not panel:
         raise HTTPException(404, f"Panel '{panel_id}' not found")
     return panel
+
+
+async def _translate_script_fields(script: Script, fields: dict) -> dict:
+    """Translate natural language script fields to Danbooru tags via Llama.
+
+    Uses the script's hierarchy context (character, chapter, page, panel)
+    to inform the translation — the same description in a romantic scene
+    vs an action scene produces different tags.
+
+    Returns the translated fields, or empty dict if LLM unavailable.
+    """
+    # Skip if all fields are empty or already short tags
+    values = [v for v in fields.values() if v]
+    if not values:
+        return {}
+    if all(len(v.split()) <= 2 for v in values):
+        return {}
+
+    from backend.generator.tag_translator import TagTranslator
+    translator = TagTranslator()
+    if not await translator.is_available():
+        return {}
+
+    # Build context from hierarchy
+    context_parts = []
+    context = script.get_context() if not script.is_orphan else {}
+    char_ctx = context.get("character", {})
+    if char_ctx.get("name"):
+        context_parts.append(f"Character: {char_ctx['name']}")
+    if char_ctx.get("description"):
+        context_parts.append(f"Description: {char_ctx['description']}")
+    page_ctx = context.get("page", {})
+    if page_ctx.get("setting"):
+        context_parts.append(f"Setting: {page_ctx['setting']}")
+    if page_ctx.get("mood"):
+        context_parts.append(f"Mood: {page_ctx['mood']}")
+    chapter_ctx = context.get("chapter", {})
+    if chapter_ctx.get("synopsis"):
+        context_parts.append(f"Chapter: {chapter_ctx['synopsis']}")
+
+    context_text = "\n".join(context_parts) if context_parts else ""
+
+    # Single LLM call with all fields + context
+    try:
+        from backend.generator.tag_vocabulary import normalize_tag
+        from backend.generator.tag_translator import FIELD_EXAMPLES
+        import httpx
+
+        fields_text = "\n".join(
+            f"{k}: {v}" for k, v in fields.items() if v
+        )
+        examples_block = "\n".join(
+            f"  {f}: {ex}" for f, ex in FIELD_EXAMPLES.items()
+        )
+
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                f"{translator.ollama_host}/api/generate",
+                json={
+                    "model": translator.model,
+                    "prompt": (
+                        "Convert these scene descriptions to Danbooru "
+                        "image generation tags. Use underscore format. "
+                        "Output ONLY field: tag, tag format.\n\n"
+                        + (f"Context:\n{context_text}\n\n" if context_text else "")
+                        + f"Input:\n{fields_text}\n\n"
+                        f"Tag vocabulary:\n{examples_block}\n\n"
+                        "Output:"
+                    ),
+                    "stream": False,
+                },
+                timeout=15.0,
+            )
+            if r.status_code == 200:
+                text = r.json().get("response", "").strip()
+                result = {}
+                for line in text.split("\n"):
+                    line = line.strip()
+                    for field in fields:
+                        if line.lower().startswith(f"{field}:"):
+                            value = line[len(field) + 1:].strip()
+                            tags = [normalize_tag(t) for t in value.split(",")]
+                            tags = [t for t in tags if t]
+                            if tags:
+                                result[field] = ", ".join(tags)
+                            break
+                if result:
+                    log.info("Translated script fields: %s", result)
+                return result
+    except Exception as e:
+        log.warning("Script field translation failed: %s", e)
+
+    return {}
 
 
 def _require_character_in_hierarchy(character_id: str, panel: Panel) -> None:

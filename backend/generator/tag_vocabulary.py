@@ -250,10 +250,9 @@ def normalize_tag(text: str) -> str:
 
 
 def normalize_tags(text: str) -> list[str]:
-    """Split a comma/space-separated string into normalized tags."""
+    """Split a comma-separated string into normalized tags."""
     if not text:
         return []
-    # Split on commas first, then normalize each
     parts = [p.strip() for p in text.split(",") if p.strip()]
     return [normalize_tag(p) for p in parts if normalize_tag(p)]
 
