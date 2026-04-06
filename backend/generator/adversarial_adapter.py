@@ -149,11 +149,12 @@ class AdversarialAdapter(nn.Module):
         mse = nn.functional.mse_loss(v_through, l_compressed)
 
         if accepted:
-            # Push toward alignment — MSE should be low
             loss = mse
         else:
-            # Push toward misalignment — invert the loss
-            loss = 1.0 / (mse + 1e-6)
+            # Contrastive margin: push apart until margin, then stop.
+            # Convex, bounded, non-vanishing gradients within margin.
+            margin = 2.0
+            loss = torch.clamp(margin - mse, min=0.0)
 
         # Add the global alignment regulariser
         loss = loss + 0.1 * self.alignment_loss()

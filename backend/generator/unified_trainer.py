@@ -177,10 +177,11 @@ class UnifiedTrainer:
                     interaction, lang_compressed,
                 )
 
+                margin = 2.0
                 if pair.accepted:
                     visual_loss = mse
                 else:
-                    visual_loss = 1.0 / (mse + 1e-6)
+                    visual_loss = torch.clamp(margin - mse, min=0.0)
 
                 # 2. Language loss — if we have ollama embeddings,
                 # use them directly. The LLaVA image embedding
@@ -217,7 +218,7 @@ class UnifiedTrainer:
                     if pair.match_score > 0.5:
                         language_loss = mse
                     else:
-                        language_loss = 1.0 / (mse + 1e-6)
+                        language_loss = torch.clamp(margin - mse, min=0.0)
 
                 # 3. Review loss — alignment regularisation
                 review_loss = self.adapter.alignment_loss()
