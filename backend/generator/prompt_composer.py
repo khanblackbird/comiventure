@@ -134,7 +134,9 @@ class PromptComposer:
         if panel.shot_type:
             parts.append(f"Shot type: {panel.shot_type}")
 
-        # Characters — ALWAYS appearance_prompt as base, then script overrides
+        # Characters — give the LLM BOTH normalized tags AND raw properties.
+        # The LLM can produce richer prompts that explore more of the
+        # embedding space than strict tag normalization allows.
         parts.append(f"\nCharacters in this panel ({len(characters)}):")
         for character in characters:
             script = panel.get_script(character.character_id)
@@ -142,11 +144,29 @@ class PromptComposer:
             char_desc.append(f"  Name: {character.name}")
             if character.description:
                 char_desc.append(f"  Description: {character.description}")
-            # Character.to_prompt() is the STANDARD base
+            # Normalized tags — what the model responds to
             char_prompt = character.to_prompt()
             if char_prompt:
-                char_desc.append(f"  Appearance: {char_prompt}")
-            # Script.to_prompt() fields are per-panel overrides
+                char_desc.append(f"  Tags: {char_prompt}")
+            # Raw appearance properties — richer detail for the LLM
+            props = character.appearance.properties
+            raw_details = []
+            if props.facial_features:
+                raw_details.append(f"face: {props.facial_features}")
+            if props.body_type:
+                raw_details.append(f"build: {props.body_type}")
+            if props.art_style_notes:
+                raw_details.append(f"style: {props.art_style_notes}")
+            # Profile physical traits add visual nuance
+            if character.profile and character.profile.physical:
+                phys = character.profile.physical
+                if phys.distinguishing_marks:
+                    raw_details.append(f"marks: {phys.distinguishing_marks}")
+                if phys.hair_fur:
+                    raw_details.append(f"hair/fur: {phys.hair_fur}")
+            if raw_details:
+                char_desc.append(f"  Details: {', '.join(raw_details)}")
+            # Script fields — per-panel overrides
             if script:
                 if script.pose:
                     char_desc.append(f"  Pose: {script.pose}")
