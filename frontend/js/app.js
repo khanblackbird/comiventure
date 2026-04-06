@@ -1513,18 +1513,29 @@ class ComiventureApp {
             const result = await api.suggestScripts(characterId, panel.panel_id);
             const s = result.suggestions;
 
-            const response = [
-                s.action ? `*${s.action}*` : null,
-                s.emotion ? `Emotion: ${s.emotion}` : null,
-                s.pose ? `Pose: ${s.pose}` : null,
-                s.outfit ? `Outfit: ${s.outfit}` : null,
-                s.direction ? `Direction: ${s.direction}` : null,
-            ].filter(Boolean).join('\n');
+            const scriptParts = [
+                s.pose ? `pose: ${s.pose}` : null,
+                s.action ? `action: ${s.action}` : null,
+                s.emotion ? `emotion: ${s.emotion}` : null,
+                s.outfit ? `outfit: ${s.outfit}` : null,
+                s.direction ? `direction: ${s.direction}` : null,
+            ].filter(Boolean);
 
-            this._addChatMessage(this.characters[characterId]?.name || characterId, response, 'character', {
-                suggestion: s,
-                characterId: characterId,
-            });
+            const panelParts = [
+                s.shot_type ? `shot_type: ${s.shot_type}` : null,
+                s.narration ? `narration: ${s.narration}` : null,
+            ].filter(Boolean);
+
+            const lines = [];
+            if (scriptParts.length) lines.push('**Script:**\n' + scriptParts.join('\n'));
+            if (panelParts.length) lines.push('**Panel:**\n' + panelParts.join('\n'));
+
+            this._addChatMessage(
+                this.characters[characterId]?.name || characterId,
+                lines.join('\n\n') || '(no suggestions)',
+                'character',
+                { suggestion: s, characterId },
+            );
         } catch (error) {
             this._addChatMessage('System', 'Could not get suggestions — is Ollama running?', 'narrator');
         }
@@ -1568,18 +1579,45 @@ class ComiventureApp {
 
         const script = panel.scripts[characterId];
         try {
-            const updated = await api.updateScript(script.script_id, {
-                action: suggestion.action || script.action,
-                emotion: suggestion.emotion || script.emotion,
-                pose: suggestion.pose || script.pose,
-                direction: suggestion.direction || script.direction,
-                // Dialogue is NOT auto-filled — user writes it manually
-            });
-            Object.assign(script, updated);
+            // Apply script-level fields
+            const scriptUpdate = {};
+            if (suggestion.action) scriptUpdate.action = suggestion.action;
+            if (suggestion.emotion) scriptUpdate.emotion = suggestion.emotion;
+            if (suggestion.pose) scriptUpdate.pose = suggestion.pose;
+            if (suggestion.outfit) scriptUpdate.outfit = suggestion.outfit;
+            if (suggestion.direction) scriptUpdate.direction = suggestion.direction;
+
+            if (Object.keys(scriptUpdate).length) {
+                const updated = await api.updateScript(script.script_id, scriptUpdate);
+                Object.assign(script, updated);
+            }
+
+            // Apply panel-level fields
+            const panelUpdate = {};
+            if (suggestion.shot_type && !panel.shot_type) {
+                panelUpdate.shot_type = suggestion.shot_type;
+            }
+            if (suggestion.narration && !panel.narration) {
+                panelUpdate.narration = suggestion.narration;
+            }
+
+            if (Object.keys(panelUpdate).length) {
+                const updatedPanel = await api.updatePanel(panel.panel_id, panelUpdate);
+                Object.assign(panel, updatedPanel);
+            }
+
             this._renderPanelScripts();
             this._renderPage();
             this._renderPanelSelection();
-            this._addChatMessage('System', 'Applied suggestion to script', 'narrator');
+
+            const applied = [];
+            if (Object.keys(scriptUpdate).length) {
+                applied.push(`script: ${Object.keys(scriptUpdate).join(', ')}`);
+            }
+            if (Object.keys(panelUpdate).length) {
+                applied.push(`panel: ${Object.keys(panelUpdate).join(', ')}`);
+            }
+            this._addChatMessage('System', `Applied: ${applied.join(' + ') || 'nothing new'}`, 'narrator');
         } catch (error) {
             console.error('Failed to apply suggestion:', error);
         }

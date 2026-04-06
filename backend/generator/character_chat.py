@@ -116,9 +116,11 @@ class CharacterChat:
         previous_panel: Panel = None,
         next_panel: Panel = None,
     ) -> dict:
-        """Suggest script fields (dialogue, action, emotion, direction) for a panel.
+        """Suggest ALL panel fields as Danbooru tags.
 
-        Uses surrounding panels for continuity.
+        Returns script fields (pose, action, emotion, outfit, direction)
+        AND panel fields (shot_type, narration). All visual fields use
+        Danbooru tag format for direct use in image generation.
         """
         context_parts = []
         if page:
@@ -132,51 +134,85 @@ class CharacterChat:
         if previous_panel:
             prev_script = previous_panel.get_script(character.character_id)
             if prev_script:
-                parts = []
-                if prev_script.action:
-                    parts.append(f"action: {prev_script.action}")
-                if prev_script.dialogue:
-                    parts.append(f"said: \"{prev_script.dialogue}\"")
-                if parts:
-                    context_parts.append(f"In the previous panel, you were {', '.join(parts)}")
+                prompt = prev_script.to_prompt()
+                if prompt:
+                    context_parts.append(f"Previous panel tags: {prompt}")
+            if previous_panel.shot_type:
+                context_parts.append(f"Previous shot: {previous_panel.shot_type}")
 
         if next_panel:
             next_script = next_panel.get_script(character.character_id)
             if next_script:
-                parts = []
-                if next_script.action:
-                    parts.append(f"action: {next_script.action}")
-                if next_script.dialogue:
-                    parts.append(f"saying: \"{next_script.dialogue}\"")
-                if parts:
-                    context_parts.append(f"In the next panel, you will be {', '.join(parts)}")
+                prompt = next_script.to_prompt()
+                if prompt:
+                    context_parts.append(f"Next panel tags: {prompt}")
+
+        # Show current state so LLM fills gaps
+        current = panel.get_script(character.character_id)
+        current_parts = []
+        if current:
+            for f in ("pose", "action", "emotion", "outfit"):
+                v = getattr(current, f, "")
+                current_parts.append(f"{f}: {v}" if v else f"{f}: (empty)")
+        current_parts.append(
+            f"shot_type: {panel.shot_type}" if panel.shot_type else "shot_type: (empty)"
+        )
+        current_parts.append(
+            f"narration: {panel.narration}" if panel.narration else "narration: (empty)"
+        )
 
         scene = "\n".join(context_parts) if context_parts else ""
+        current_state = "\n".join(current_parts)
 
         message = (
             f"{scene}\n\n"
-            "Suggest visual details for this panel. "
-            "Do NOT suggest dialogue — only visual/physical details. "
+            f"Current panel state:\n{current_state}\n\n"
+            "Fill in ALL empty fields. Use Danbooru tag format "
+            "(underscore, e.g. crossed_arms, looking_at_viewer).\n"
             "Respond ONLY in this exact format:\n"
-            "action: (what you physically do)\n"
-            "emotion: (one word emotion)\n"
-            "pose: (body position — standing, sitting, crouching, etc.)\n"
-            "outfit: (what you are wearing, if different from default)\n"
-            "direction: (camera/framing suggestion)"
+            "pose: (standing, sitting, kneeling, running, "
+            "crossed_arms, hand_on_hip, dynamic_pose)\n"
+            "action: (fighting, reading, holding_sword, waving, "
+            "casting_spell, dancing)\n"
+            "emotion: (smile, angry, crying, surprised, serious, "
+            "embarrassed, looking_at_viewer)\n"
+            "outfit: (school_uniform, armor, dress, hoodie, "
+            "kimono — Danbooru tag)\n"
+            "direction: (portrait, upper_body, cowboy_shot, full_body, "
+            "close-up, from_above, from_below)\n"
+            "shot_type: (wide, medium, close-up, extreme_close-up, "
+            "over-shoulder, birds_eye)\n"
+            "narration: (one short sentence describing the scene)"
         )
 
         response = await self.chat(character, message, panel, page)
 
-        # Parse the response
+        from backend.generator.tag_vocabulary import (
+            find_closest_tag, POSES, ACTIONS, EXPRESSIONS,
+            CLOTHING, FRAMING,
+        )
+
         result = {
-            "action": "", "emotion": "",
-            "pose": "", "outfit": "", "direction": "",
+            "pose": "", "action": "", "emotion": "",
+            "outfit": "", "direction": "",
+            "shot_type": "", "narration": "",
         }
         for line in response.split("\n"):
             line = line.strip()
             for field in result:
                 if line.lower().startswith(f"{field}:"):
-                    result[field] = line[len(field) + 1:].strip()
+                    value = line[len(field) + 1:].strip().strip("()\"'")
+                    if not value or value.lower() in ("empty", "n/a", "none"):
+                        break
+                    # Normalize visual fields through tag vocabulary
+                    tag_sets = {
+                        "pose": POSES, "action": ACTIONS,
+                        "emotion": EXPRESSIONS, "outfit": CLOTHING,
+                        "direction": FRAMING,
+                    }
+                    if field in tag_sets:
+                        value = find_closest_tag(value, tag_sets[field])
+                    result[field] = value
                     break
 
         return result
