@@ -390,11 +390,16 @@ async def upload_lora(file: UploadFile = File(...)):
             metadata={"type": "lora", "filename": safe_name},
         )
 
+    # Auto-detect training format from LoRA metadata
+    from backend.generator.tag_vocabulary import detect_format_from_file
+    detected = detect_format_from_file(lora_path)
+
     return {
         "filename": safe_name,
         "name": lora_path.stem,
         "size_mb": round(len(lora_bytes) / (1024 * 1024), 1),
         "content_hash": content_hash,
+        "detected_format": detected,
     }
 
 
@@ -413,11 +418,24 @@ async def upload_checkpoint(file: UploadFile = File(...)):
             f.write(chunk)
 
     size_mb = round(checkpoint_path.stat().st_size / (1024 * 1024), 1)
+
+    # Auto-detect prompt format from safetensors metadata
+    from backend.generator.tag_vocabulary import (
+        auto_profile_for_file, MODEL_PROFILES,
+    )
+    profile = auto_profile_for_file(checkpoint_path)
+    model_key = f"local:{checkpoint_path.stem}"
+    MODEL_PROFILES[str(checkpoint_path)] = profile
+    log.info("Checkpoint %s: detected format=%s (from %s)",
+             safe_name, profile["format"], profile.get("detected_from"))
+
     return {
         "filename": safe_name,
         "name": checkpoint_path.stem,
         "size_mb": size_mb,
-        "model_key": f"local:{checkpoint_path.stem}",
+        "model_key": model_key,
+        "detected_format": profile["format"],
+        "detected_from": profile.get("detected_from", "unknown"),
     }
 
 

@@ -15,8 +15,11 @@ Danbooru (anime), e621 (furry), Derpibooru (pony).
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
+import struct
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -388,3 +391,155 @@ def format_negative(model_id: str, extra: list[str] = None) -> str:
             seen.add(p)
             unique.append(p)
     return ", ".join(unique)
+
+
+# ── Auto-detection from safetensors metadata ──────────────────────────
+
+def read_safetensors_metadata(file_path: str | Path) -> dict[str, str]:
+    """Read __metadata__ from a safetensors file header.
+
+    Only reads 8 bytes + JSON header — never touches the weights.
+    A 6.5GB checkpoint reads in < 1ms.
+    """
+    try:
+        with open(file_path, "rb") as f:
+            header_len = struct.unpack("<Q", f.read(8))[0]
+            if header_len > 100_000_000:
+                log.warning("Safetensors header too large: %d bytes", header_len)
+                return {}
+            header = json.loads(f.read(header_len))
+        return header.get("__metadata__", {})
+    except Exception as e:
+        log.warning("Failed to read safetensors metadata: %s", e)
+        return {}
+
+
+def detect_format_from_metadata(metadata: dict[str, str]) -> str | None:
+    """Detect prompt format from safetensors metadata.
+
+    Checks kohya_ss training tags (ss_tag_frequency), base model name,
+    and modelspec fields. Returns format string or None.
+    """
+    # 1. Check ss_tag_frequency — the actual training tags
+    tag_freq_raw = metadata.get("ss_tag_frequency")
+    if tag_freq_raw:
+        try:
+            tag_freq = json.loads(tag_freq_raw)
+        except (json.JSONDecodeError, TypeError):
+            tag_freq = {}
+
+        all_tags = set()
+        for folder_tags in tag_freq.values():
+            if isinstance(folder_tags, dict):
+                all_tags.update(folder_tags.keys())
+
+        if all_tags:
+            detected = _classify_tags(all_tags)
+            if detected:
+                log.info("Detected format '%s' from %d training tags", detected, len(all_tags))
+                return detected
+
+    # 2. Check base model name
+    base_model = metadata.get("ss_sd_model_name", "").lower()
+    if "pony" in base_model or "pdxl" in base_model:
+        return PONY
+    if "animagine" in base_model or "aam" in base_model:
+        return DANBOORU
+    if "e621" in base_model or "furry" in base_model:
+        return E621
+
+    # 3. Check modelspec title
+    title = metadata.get("modelspec.title", "").lower()
+    if "pony" in title:
+        return PONY
+    if "anime" in title or "danbooru" in title:
+        return DANBOORU
+
+    return None
+
+
+def _classify_tags(tags: set[str]) -> str | None:
+    """Classify a set of training tags into a format."""
+    pony_markers = {"score_9", "score_8_up", "score_7_up",
+                    "source_anime", "source_furry"}
+    if tags & pony_markers:
+        return PONY
+
+    e621_markers = {"anthro", "feral", "rating_safe",
+                    "rating_explicit", "canine", "equine"}
+    if len(tags & e621_markers) >= 2:
+        return E621
+
+    danbooru_markers = {"1girl", "1boy", "solo", "highres",
+                        "masterpiece", "looking_at_viewer"}
+    if tags & danbooru_markers:
+        return DANBOORU
+
+    # Natural language heuristic: long tags, many spaces
+    if tags:
+        avg_len = sum(len(t) for t in tags) / len(tags)
+        space_ratio = sum(1 for t in tags if " " in t) / len(tags)
+        if avg_len > 20 or space_ratio > 0.5:
+            return NATURAL
+
+    return None
+
+
+def detect_format_from_file(file_path: str | Path) -> str | None:
+    """Auto-detect prompt format from a safetensors file.
+
+    Reads the header metadata (< 1ms), checks for training tags,
+    base model name, and modelspec fields. Returns format string
+    or None if detection fails.
+    """
+    metadata = read_safetensors_metadata(file_path)
+    if not metadata:
+        return None
+    return detect_format_from_metadata(metadata)
+
+
+def auto_profile_for_file(file_path: str | Path) -> dict:
+    """Build a model profile for an uploaded safetensors file.
+
+    Reads metadata, detects format, returns a profile dict compatible
+    with MODEL_PROFILES. Falls back to DEFAULT_PROFILE if detection fails.
+    """
+    metadata = read_safetensors_metadata(file_path)
+    detected = detect_format_from_metadata(metadata) if metadata else None
+
+    if detected == PONY:
+        return {
+            "format": PONY,
+            "positive": [
+                "score_9", "score_8_up", "score_7_up",
+                "score_6_up", "source_anime",
+            ],
+            "negative": ["score_5", "score_4", "low_quality"],
+            "detected_from": "metadata",
+        }
+    if detected == E621:
+        return {
+            "format": E621,
+            "positive": ["masterpiece", "best_quality"],
+            "negative": ["low_quality", "worst_quality", "text", "watermark"],
+            "detected_from": "metadata",
+        }
+    if detected == NATURAL:
+        return {
+            "format": NATURAL,
+            "positive": [],
+            "negative": ["low quality, blurry, distorted"],
+            "detected_from": "metadata",
+        }
+    if detected == DANBOORU:
+        return {
+            "format": DANBOORU,
+            "positive": ["masterpiece", "best_quality"],
+            "negative": [
+                "(low_quality, worst_quality:1.4)", "text",
+                "signature", "watermark",
+            ],
+            "detected_from": "metadata",
+        }
+
+    return {**DEFAULT_PROFILE, "detected_from": "fallback"}
