@@ -222,64 +222,39 @@
                         <!-- Appearance properties -->
                     </div>
 
-                    <!-- Solo chapter panels -->
-                    <div id="solo-panels-section">
-                        <div class="section-header">
-                            <h4>Character Panels</h4>
-                            <div class="section-actions">
-                                <button id="btn-generate-solo" class="small-btn">Generate</button>
-                            </div>
-                        </div>
-                        <div id="solo-generate-area" hidden>
-                            <div class="solo-gen-fields">
-                                <input type="text" id="solo-prompt" placeholder="Action / scene description...">
-                                <div class="solo-gen-row">
-                                    <input type="text" id="solo-pose" placeholder="Pose (standing, sitting...)">
-                                    <input type="text" id="solo-emotion" placeholder="Emotion">
-                                </div>
-                                <div class="solo-gen-row">
-                                    <input type="text" id="solo-outfit" placeholder="Outfit">
-                                    <input type="text" id="solo-direction" placeholder="Direction (close-up, from below...)">
-                                </div>
-                                <div class="solo-gen-row">
-                                    <select id="solo-shot-type">
-                                        <option value="">Shot type...</option>
-                                        <option value="wide">Wide</option>
-                                        <option value="medium">Medium</option>
-                                        <option value="close-up">Close-up</option>
-                                        <option value="extreme close-up">Extreme close-up</option>
-                                        <option value="over-shoulder">Over-shoulder</option>
-                                        <option value="bird's eye">Bird's eye</option>
-                                        <option value="low angle">Low angle</option>
-                                    </select>
-                                    <input type="number" id="solo-seed" placeholder="Seed (random)" min="0">
-                                </div>
-                                <textarea id="solo-negative" rows="2" placeholder="Negative prompt (optional)..."></textarea>
-                            </div>
-                            <button id="btn-solo-go">Generate</button>
-                        </div>
-                        <div id="solo-panels-grid">
-                            <!-- Solo chapter panels rendered here -->
-                        </div>
-                    </div>
-
-                    <!-- Reference bank -->
+                    <!-- Image bank: references + generated, one unified grid -->
                     <div id="reference-bank">
                         <div class="section-header">
-                            <h4>Reference Bank</h4>
+                            <h4>Images</h4>
                             <div class="section-actions">
                                 <label class="upload-btn">
                                     Upload
                                     <input type="file" id="reference-upload" accept="image/*" multiple hidden>
                                 </label>
-                                <label class="upload-btn">
-                                    Upload &amp; Analyze
-                                    <input type="file" id="reference-upload-analyze" accept="image/*" hidden>
-                                </label>
+                                <button id="btn-generate-solo" class="small-btn">Generate</button>
                             </div>
                         </div>
+                        <div id="solo-generate-area" hidden>
+                            <div class="solo-gen-fields">
+                                <input type="text" id="solo-prompt" placeholder="Description...">
+                                <div class="solo-gen-row">
+                                    <input type="text" id="solo-pose" placeholder="Pose">
+                                    <input type="text" id="solo-emotion" placeholder="Expression">
+                                </div>
+                                <div class="solo-gen-row">
+                                    <input type="text" id="solo-outfit" placeholder="Outfit">
+                                    <select id="solo-shot-type">
+                                        <option value="">Shot...</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="close-up">Close-up</option>
+                                        <option value="full_body">Full body</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button id="btn-solo-go">Generate</button>
+                        </div>
                         <div id="reference-grid">
-                            <!-- Reference images -->
+                            <!-- All character images: references + solo panels -->
                         </div>
                     </div>
 

@@ -666,10 +666,6 @@ class ComiventureApp {
             if (event.target.files.length > 0) this._uploadReferences(event.target.files);
             event.target.value = '';
         });
-        document.getElementById('reference-upload-analyze').addEventListener('change', (event) => {
-            if (event.target.files[0]) this._uploadAndAnalyze(event.target.files[0]);
-            event.target.value = '';
-        });
         document.getElementById('btn-apply-analysis').addEventListener('click', () => this._applyAnalysis());
         document.getElementById('btn-close-analysis').addEventListener('click', () => {
             document.getElementById('analysis-result').hidden = true;
@@ -2356,7 +2352,7 @@ class ComiventureApp {
     }
 
     _renderSoloPanelsGrid() {
-        const grid = document.getElementById('solo-panels-grid');
+        const grid = document.getElementById('reference-grid');
 
         if (!this._soloChapter || !this._soloChapter.pages) {
             grid.innerHTML = '<span class="hint">Generate solo images to build the character sheet</span>';
@@ -2619,13 +2615,10 @@ class ComiventureApp {
         const pose = document.getElementById('solo-pose').value.trim();
         const emotion = document.getElementById('solo-emotion').value.trim();
         const outfit = document.getElementById('solo-outfit').value.trim();
-        const direction = document.getElementById('solo-direction').value.trim();
         const shotType = document.getElementById('solo-shot-type').value;
-        const negative = document.getElementById('solo-negative').value.trim();
-        const seedVal = document.getElementById('solo-seed').value;
 
         // Need at least one visual field
-        if (!prompt && !pose && !emotion && !outfit && !direction) {
+        if (!prompt && !pose && !emotion && !outfit) {
             document.getElementById('solo-prompt').focus();
             return;
         }
@@ -2637,11 +2630,9 @@ class ComiventureApp {
         try {
             const body = {
                 character_id: this._detailCharacterId,
-                prompt, pose, outfit, emotion, direction,
+                prompt, pose, outfit, emotion,
                 shot_type: shotType,
             };
-            if (negative) body.negative_prompt = negative;
-            if (seedVal) body.seed = parseInt(seedVal, 10);
 
             const result = await api._post('/api/generate-solo', body);
 
@@ -2662,10 +2653,7 @@ class ComiventureApp {
             document.getElementById('solo-pose').value = '';
             document.getElementById('solo-emotion').value = '';
             document.getElementById('solo-outfit').value = '';
-            document.getElementById('solo-direction').value = '';
             document.getElementById('solo-shot-type').value = '';
-            document.getElementById('solo-negative').value = '';
-            document.getElementById('solo-seed').value = '';
             document.getElementById('solo-generate-area').hidden = true;
         } catch (error) {
             console.error('Solo generation failed:', error);
