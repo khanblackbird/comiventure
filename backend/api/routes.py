@@ -2476,6 +2476,59 @@ async def switch_model(model_key: str):
     }
 
 
+# --- Tag suggestions ---
+
+@router.get("/api/tags/{field}")
+async def get_tag_suggestions(field: str, limit: int = 20):
+    """Get suggested tags for a field based on the active model's training data.
+
+    If the model has ss_tag_frequency metadata, returns its actual
+    training tags ranked by frequency. Otherwise returns canonical tags.
+
+    Fields: pose, action, emotion, expression, outfit, direction,
+    framing, species, hair_colour, hair_style, eye_colour, accessories
+    """
+    model_id = image_generator.model_id if image_generator else ""
+    from backend.generator.tag_vocabulary import (
+        get_field_suggestions, get_model_profile,
+    )
+    suggestions = get_field_suggestions(model_id, field, limit)
+    profile = get_model_profile(model_id)
+    return {
+        "field": field,
+        "model_id": model_id,
+        "format": profile.get("format", "danbooru"),
+        "suggestions": suggestions,
+        "source": "model_metadata" if suggestions else "canonical",
+    }
+
+
+@router.get("/api/tags")
+async def get_all_tag_suggestions():
+    """Get suggested tags for ALL fields at once."""
+    model_id = image_generator.model_id if image_generator else ""
+    from backend.generator.tag_vocabulary import (
+        get_field_suggestions, get_model_profile, get_tag_capabilities,
+    )
+    profile = get_model_profile(model_id)
+    capabilities = get_tag_capabilities(model_id)
+
+    fields = [
+        "pose", "action", "expression", "outfit", "framing",
+        "species", "hair_colour", "hair_style", "eye_colour", "accessories",
+    ]
+    result = {}
+    for field in fields:
+        result[field] = get_field_suggestions(model_id, field, 20)
+
+    return {
+        "model_id": model_id,
+        "format": profile.get("format", "danbooru"),
+        "has_model_metadata": bool(capabilities),
+        "fields": result,
+    }
+
+
 # --- Content serving ---
 
 @router.get("/api/content/{content_hash}")

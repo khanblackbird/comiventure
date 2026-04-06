@@ -543,3 +543,158 @@ def auto_profile_for_file(file_path: str | Path) -> dict:
         }
 
     return {**DEFAULT_PROFILE, "detected_from": "fallback"}
+
+
+def extract_tag_capabilities(file_path: str | Path) -> dict:
+    """Extract what tag categories a model understands from its training data.
+
+    Reads ss_tag_frequency, classifies each tag into a category,
+    returns per-category tag lists sorted by frequency.
+
+    This tells us: which fields matter for this model, and what
+    vocabulary it expects per field.
+    """
+    metadata = read_safetensors_metadata(file_path)
+    tag_freq_raw = metadata.get("ss_tag_frequency")
+    if not tag_freq_raw:
+        return {}
+
+    try:
+        tag_freq = json.loads(tag_freq_raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+    # Flatten all tags with frequencies
+    flat: dict[str, int] = {}
+    for folder_tags in tag_freq.values():
+        if isinstance(folder_tags, dict):
+            for tag, count in folder_tags.items():
+                flat[tag] = flat.get(tag, 0) + (count if isinstance(count, int) else 1)
+
+    if not flat:
+        return {}
+
+    # Classify each tag into a category
+    category_map = {
+        "pose": POSES,
+        "expression": EXPRESSIONS,
+        "framing": FRAMING,
+        "hair_color": HAIR_COLORS,
+        "hair_style": HAIR_STYLES,
+        "eye_color": EYE_COLORS,
+        "species": SPECIES,
+        "clothing": CLOTHING,
+        "accessories": ACCESSORIES,
+        "action": ACTIONS,
+    }
+
+    capabilities: dict[str, list[tuple[str, int]]] = {
+        cat: [] for cat in category_map
+    }
+    capabilities["other"] = []
+
+    for tag, count in flat.items():
+        matched = False
+        for cat_name, cat_set in category_map.items():
+            if tag in cat_set:
+                capabilities[cat_name].append((tag, count))
+                matched = True
+                break
+        if not matched:
+            capabilities["other"].append((tag, count))
+
+    # Sort each category by frequency (highest first)
+    for cat in capabilities:
+        capabilities[cat].sort(key=lambda x: x[1], reverse=True)
+
+    # Build summary
+    result = {}
+    for cat, tag_list in capabilities.items():
+        if tag_list:
+            result[cat] = {
+                "count": len(tag_list),
+                "top_tags": [t[0] for t in tag_list[:20]],
+                "total_frequency": sum(t[1] for t in tag_list),
+            }
+
+    return result
+
+
+# Cached capabilities per model path
+_capabilities_cache: dict[str, dict] = {}
+
+
+def get_tag_capabilities(model_id: str) -> dict:
+    """Get tag capabilities for a model. Cached after first read.
+
+    For built-in HuggingFace models, returns default category sets.
+    For local files, reads safetensors metadata.
+    """
+    if model_id in _capabilities_cache:
+        return _capabilities_cache[model_id]
+
+    # Try as a file path (local checkpoints / LoRAs)
+    path = Path(model_id)
+    if path.exists() and path.suffix == ".safetensors":
+        caps = extract_tag_capabilities(path)
+        if caps:
+            _capabilities_cache[model_id] = caps
+            log.info(
+                "Extracted capabilities for %s: %s",
+                path.name,
+                {k: v["count"] for k, v in caps.items()},
+            )
+            return caps
+
+    # Fallback: return our canonical tag sets as default capabilities
+    _capabilities_cache[model_id] = {}
+    return {}
+
+
+def get_field_suggestions(model_id: str, field: str, limit: int = 15) -> list[str]:
+    """Get suggested tags for a specific field based on the model's training data.
+
+    If model has capabilities metadata, returns its top tags for that field.
+    Otherwise returns our canonical tag set.
+    """
+    caps = get_tag_capabilities(model_id)
+
+    # Map our field names to capability categories
+    field_to_category = {
+        "pose": "pose",
+        "action": "action",
+        "emotion": "expression",
+        "expression": "expression",
+        "outfit": "clothing",
+        "direction": "framing",
+        "framing": "framing",
+        "species": "species",
+        "hair_colour": "hair_color",
+        "hair_style": "hair_style",
+        "eye_colour": "eye_color",
+        "accessories": "accessories",
+    }
+
+    category = field_to_category.get(field)
+    if not category:
+        return []
+
+    # If we have model-specific data, use it
+    if category in caps:
+        return caps[category]["top_tags"][:limit]
+
+    # Fallback to canonical tag sets
+    canonical = {
+        "pose": POSES,
+        "expression": EXPRESSIONS,
+        "framing": FRAMING,
+        "hair_color": HAIR_COLORS,
+        "hair_style": HAIR_STYLES,
+        "eye_color": EYE_COLORS,
+        "species": SPECIES,
+        "clothing": CLOTHING,
+        "accessories": ACCESSORIES,
+        "action": ACTIONS,
+    }
+    tag_set = canonical.get(category, set())
+    return sorted(tag_set)[:limit]

@@ -18,6 +18,7 @@ from backend.generator.tag_vocabulary import (
     format_prompt, format_negative,
     read_safetensors_metadata, detect_format_from_metadata,
     detect_format_from_file, auto_profile_for_file,
+    extract_tag_capabilities, get_field_suggestions,
     _classify_tags,
     POSES, EXPRESSIONS, FRAMING, HAIR_COLORS, HAIR_STYLES,
     EYE_COLORS, SPECIES, CLOTHING, ACCESSORIES, ACTIONS,
@@ -514,3 +515,103 @@ class TestAutoProfileForFile:
             assert profile["detected_from"] == "metadata"
         finally:
             path.unlink()
+
+
+# ── Tag capabilities extraction ───────────────────────────────────────
+
+class TestExtractTagCapabilities:
+    def test_classifies_tags_into_categories(self):
+        path = _make_safetensors({
+            "ss_tag_frequency": _make_tag_freq({
+                "standing": 100, "sitting": 80,
+                "smile": 60, "angry": 40,
+                "school_uniform": 50, "dress": 30,
+                "upper_body": 20,
+                "blue_eyes": 15,
+                "long_hair": 10,
+                "custom_tag": 5,
+            }),
+        })
+        try:
+            caps = extract_tag_capabilities(path)
+            assert "pose" in caps
+            assert "standing" in caps["pose"]["top_tags"]
+            assert "expression" in caps
+            assert "smile" in caps["expression"]["top_tags"]
+            assert "clothing" in caps
+            assert "school_uniform" in caps["clothing"]["top_tags"]
+            assert "framing" in caps
+            assert "upper_body" in caps["framing"]["top_tags"]
+            assert "eye_color" in caps
+            assert "hair_style" in caps
+            assert "other" in caps
+            assert "custom_tag" in caps["other"]["top_tags"]
+        finally:
+            path.unlink()
+
+    def test_sorted_by_frequency(self):
+        path = _make_safetensors({
+            "ss_tag_frequency": _make_tag_freq({
+                "standing": 10, "sitting": 100, "kneeling": 50,
+            }),
+        })
+        try:
+            caps = extract_tag_capabilities(path)
+            pose_tags = caps["pose"]["top_tags"]
+            assert pose_tags[0] == "sitting"
+            assert pose_tags[1] == "kneeling"
+            assert pose_tags[2] == "standing"
+        finally:
+            path.unlink()
+
+    def test_empty_without_tag_frequency(self):
+        path = _make_safetensors({"random_key": "value"})
+        try:
+            caps = extract_tag_capabilities(path)
+            assert caps == {}
+        finally:
+            path.unlink()
+
+    def test_counts_per_category(self):
+        path = _make_safetensors({
+            "ss_tag_frequency": _make_tag_freq({
+                "standing": 100, "sitting": 80, "kneeling": 60,
+                "smile": 50,
+            }),
+        })
+        try:
+            caps = extract_tag_capabilities(path)
+            assert caps["pose"]["count"] == 3
+            assert caps["pose"]["total_frequency"] == 240
+            assert caps["expression"]["count"] == 1
+        finally:
+            path.unlink()
+
+
+class TestGetFieldSuggestions:
+    def test_returns_canonical_for_unknown_model(self):
+        suggestions = get_field_suggestions("unknown/model", "pose")
+        assert len(suggestions) > 0
+        assert all(tag in POSES for tag in suggestions)
+
+    def test_returns_canonical_for_expression(self):
+        suggestions = get_field_suggestions("unknown/model", "expression")
+        assert len(suggestions) > 0
+        assert all(tag in EXPRESSIONS for tag in suggestions)
+
+    def test_unknown_field_returns_empty(self):
+        suggestions = get_field_suggestions("unknown/model", "nonexistent_field")
+        assert suggestions == []
+
+    def test_limit_respected(self):
+        suggestions = get_field_suggestions("unknown/model", "pose", limit=5)
+        assert len(suggestions) <= 5
+
+    def test_emotion_maps_to_expression(self):
+        """Our field is 'emotion' but the category is 'expression'."""
+        suggestions = get_field_suggestions("unknown/model", "emotion")
+        assert len(suggestions) > 0
+
+    def test_direction_maps_to_framing(self):
+        suggestions = get_field_suggestions("unknown/model", "direction")
+        assert len(suggestions) > 0
