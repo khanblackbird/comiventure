@@ -1423,6 +1423,24 @@ class ComiventureApp {
             panel.source = 'upload';
             this._renderPage();
             this._renderPanelSelection();
+
+            // Show gap analysis if tags were discovered
+            if (result.tag_observations && result.tag_observations.length > 0) {
+                const tags = result.tag_observations.map(o => o.observed_tag);
+                const msg = `Analyzed upload — found ${tags.length} tag(s) not in scripts: ${tags.join(', ')}`;
+                this._addChatMessage('Analysis', msg, 'system');
+
+                // Store for potential apply
+                if (result.analysis) {
+                    this._pendingPanelAnalysis = {
+                        character: result.analysis.character || {},
+                        art_style: result.analysis.art_style || {},
+                    };
+                    document.getElementById('panel-analysis-result').hidden = false;
+                    document.getElementById('panel-analysis-caption').textContent =
+                        `Upload analysis: ${result.analysis.raw_caption || ''}`;
+                }
+            }
         } catch (error) {
             console.error('Panel image upload failed:', error);
         }

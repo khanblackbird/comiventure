@@ -1346,9 +1346,13 @@ async def update_panel(panel_id: str, request: UpdatePanelRequest):
 async def upload_panel_image(panel_id: str, file: UploadFile = File(...)):
     """Upload a custom image for a panel.
 
-    Stores in ContentStore, sets as the panel image with source='upload'.
-    The image can then be analyzed to discover tags and feed the
-    adversarial training loop just like generated images.
+    Stores in ContentStore, sets as panel image, then auto-analyzes
+    to discover the gap between the user's scripts/context and what's
+    actually in the uploaded image. This gap is ground truth training
+    data — the user is saying "this is what these tags should look like."
+
+    The tag observations from upload have source='upload_review' and
+    record the full context: what the scripts said vs what the image contains.
     """
     panel = _require_panel(panel_id)
     if not content_store:
@@ -1360,9 +1364,71 @@ async def upload_panel_image(panel_id: str, file: UploadFile = File(...)):
 
     panel.update_image(content_hash, source="upload")
 
+    # Collect current script tags BEFORE analysis — this is what the
+    # user described, the "intention" side of the gap
+    source_tags = []
+    for script in panel.scripts.values():
+        for tag in script.to_prompt().split(", "):
+            if tag:
+                source_tags.append(tag)
+
+    # Auto-analyze the uploaded image to find the gap
+    observations = []
+    try:
+        from backend.generator.image_analyzer import ImageAnalyzer
+        from backend.generator.tag_vocabulary import normalize_tag
+
+        if image_generator and image_generator.pipeline:
+            if _HAS_TORCH:
+                torch.cuda.empty_cache()
+            gc.collect()
+
+        analyzer = ImageAnalyzer()
+        result = await analyzer.analyze(image_bytes)
+
+        # Every analyzed field is a potential observation
+        analysis_tags = []
+        for value in (
+            result.character.species, result.character.hair_style,
+            result.character.hair_colour, result.character.eye_colour,
+            result.character.outfit, result.character.accessories,
+            result.character.pose, result.character.expression,
+        ):
+            if value:
+                analysis_tags.append(normalize_tag(value))
+
+        # Novel tags = in the image but not in the scripts
+        novel = [t for t in analysis_tags if t and t not in set(source_tags)]
+        if novel:
+            adapter = _get_adapter()
+            observations = panel.observe_tags(
+                tags=novel,
+                source="upload_review",
+                source_tags=source_tags,
+                model_id=image_generator.model_id if image_generator else "",
+                adapter_hash=adapter.adapter_hash or "" if adapter else "",
+                confidence=1.0,  # upload = ground truth
+            )
+            log.info("Upload panel %s: observed %d tags from gap: %s",
+                     panel_id, len(observations),
+                     [o.observed_tag for o in observations])
+
+        analysis_result = {
+            "raw_caption": result.raw_caption,
+            "character": result.character.__dict__,
+            "art_style": result.art_style.__dict__,
+        }
+    except Exception as e:
+        log.warning("Auto-analysis on upload failed: %s", e)
+        analysis_result = None
+
     return {
         "content_hash": content_hash,
         "image_url": f"/api/content/{content_hash}",
+        "source_tags": source_tags,
+        "discovered_tags": panel.discovered_tags,
+        "tag_observations": [o.to_dict() for o in observations],
+        "analysis": analysis_result,
         "panel": panel.to_dict(),
     }
 
