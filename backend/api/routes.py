@@ -2567,7 +2567,7 @@ async def train_adapter(request: TrainRequest = TrainRequest()):
         "language_loss": last_result.language_loss if last_result else None,
         "review_loss": last_result.review_loss if last_result else None,
         "alignment": last_result.alignment if last_result else None,
-        "val_similarity": last_result.val_similarity if last_result else None,
+        "val_mse": last_result.val_mse if last_result else None,
         "val_count": last_result.val_count if last_result else 0,
     }
 

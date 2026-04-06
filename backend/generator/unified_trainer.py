@@ -60,7 +60,7 @@ class TrainingResult:
     combined_loss: float
     alignment: float
     # Validation metrics (from test set — uploaded images)
-    val_similarity: Optional[float] = None
+    val_mse: Optional[float] = None
     val_count: int = 0
 
 
@@ -168,19 +168,19 @@ class UnifiedTrainer:
                     lang_raw, lang_raw
                 )
 
-                # 1. Visual loss — adapted representations alignment
+                # 1. Visual loss — MSE in rank-space (linear, magnitude matters)
                 vis_compressed = self.adapter.A_visual(vis_adapted)
                 lang_compressed = self.adapter.A_language(lang_adapted)
                 interaction = vis_compressed @ self.adapter.interaction
 
-                similarity = torch.nn.functional.cosine_similarity(
-                    interaction, lang_compressed, dim=-1
+                mse = torch.nn.functional.mse_loss(
+                    interaction, lang_compressed,
                 )
 
                 if pair.accepted:
-                    visual_loss = (1.0 - similarity).mean()
+                    visual_loss = mse
                 else:
-                    visual_loss = similarity.mean()
+                    visual_loss = 1.0 / (mse + 1e-6)
 
                 # 2. Language loss — if we have ollama embeddings,
                 # use them directly. The LLaVA image embedding
@@ -205,22 +205,19 @@ class UnifiedTrainer:
                         ctx_proj, ctx_proj
                     )
 
-                    review_sim = torch.nn.functional.cosine_similarity(
+                    review_mse = torch.nn.functional.mse_loss(
                         self.adapter.A_visual(img_adapted),
                         self.adapter.A_language(ctx_adapted),
-                        dim=-1,
                     )
 
-                    # Object context is ground truth — always push
-                    # toward alignment
-                    language_loss = (1.0 - review_sim).mean()
+                    # Object context is ground truth — always minimize MSE
+                    language_loss = review_mse
                 else:
                     # Fallback: use match_score as static signal
-                    review_accepted = pair.match_score > 0.5
-                    if review_accepted:
-                        language_loss = (1.0 - similarity).mean()
+                    if pair.match_score > 0.5:
+                        language_loss = mse
                     else:
-                        language_loss = similarity.mean()
+                        language_loss = 1.0 / (mse + 1e-6)
 
                 # 3. Review loss — alignment regularisation
                 review_loss = self.adapter.alignment_loss()
@@ -243,7 +240,7 @@ class UnifiedTrainer:
             _, S, _ = self.adapter.compute_interaction()
 
             # --- Validation pass (uploaded images — no gradients) ---
-            val_sim = 0.0
+            val_mse = 0.0
             val_count = len(test_data)
             if test_data:
                 self.adapter.eval()
@@ -260,10 +257,10 @@ class UnifiedTrainer:
                         vis_c = self.adapter.A_visual(vis_adapted)
                         lang_c = self.adapter.A_language(lang_adapted)
                         inter = vis_c @ self.adapter.interaction
-                        sim = torch.nn.functional.cosine_similarity(
-                            inter, lang_c, dim=-1,
+                        mse_val = torch.nn.functional.mse_loss(
+                            inter, lang_c,
                         )
-                        val_sim += sim.mean().item()
+                        val_mse += mse_val.item()
                 self.adapter.train()
 
             result = TrainingResult(
@@ -274,7 +271,7 @@ class UnifiedTrainer:
                     epoch_visual + epoch_language + epoch_review
                 ) / train_count,
                 alignment=S.mean().item(),
-                val_similarity=val_sim / max(val_count, 1) if val_count else None,
+                val_mse=val_mse / max(val_count, 1) if val_count else None,
                 val_count=val_count,
             )
             results.append(result)
@@ -282,8 +279,8 @@ class UnifiedTrainer:
             if (epoch == 0 or epoch == epochs - 1
                     or (epoch + 1) % max(1, epochs // 10) == 0):
                 val_str = (
-                    f" val={result.val_similarity:.4f}({val_count})"
-                    if result.val_similarity is not None else ""
+                    f" val_mse={result.val_mse:.4f}({val_count})"
+                    if result.val_mse is not None else ""
                 )
                 log.info(
                     "  Epoch %d/%d: vis=%.4f lang=%.4f review=%.4f"

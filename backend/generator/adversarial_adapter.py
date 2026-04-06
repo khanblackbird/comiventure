@@ -145,15 +145,15 @@ class AdversarialAdapter(nn.Module):
         # Interaction through the learned matrix
         v_through = v_compressed @ self.interaction  # [batch, rank]
 
-        # Alignment = cosine similarity in rank-space
-        similarity = nn.functional.cosine_similarity(v_through, l_compressed, dim=-1)
+        # MSE in rank-space — linear space, magnitude matters
+        mse = nn.functional.mse_loss(v_through, l_compressed)
 
         if accepted:
-            # Push toward alignment — similarity should be high
-            loss = 1.0 - similarity.mean()
+            # Push toward alignment — MSE should be low
+            loss = mse
         else:
-            # Push toward misalignment — similarity should be low
-            loss = similarity.mean()
+            # Push toward misalignment — invert the loss
+            loss = 1.0 / (mse + 1e-6)
 
         # Add the global alignment regulariser
         loss = loss + 0.1 * self.alignment_loss()
