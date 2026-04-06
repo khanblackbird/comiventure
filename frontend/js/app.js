@@ -763,6 +763,12 @@ class ComiventureApp {
         document.getElementById('panel-shot-type').addEventListener('change', () => this._savePanelProps());
         document.getElementById('panel-narration').addEventListener('change', () => this._savePanelProps());
 
+        // Panel upload
+        document.getElementById('panel-upload-image').addEventListener('change', async (event) => {
+            if (event.target.files[0]) await this._uploadPanelImage(event.target.files[0]);
+            event.target.value = '';
+        });
+
         // Feedback
         document.getElementById('btn-thumbs-up').addEventListener('click', () => this._submitFeedback(true));
         document.getElementById('btn-thumbs-down').addEventListener('click', () => this._submitFeedback(false));
@@ -1397,6 +1403,28 @@ class ComiventureApp {
             this.isGenerating = false;
             generateButton.disabled = false;
             generateButton.textContent = 'Generate';
+        }
+    }
+
+    async _uploadPanelImage(file) {
+        const panel = this.selectedPanel;
+        if (!panel) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const result = await fetch(`/api/panels/${panel.panel_id}/upload`, {
+                method: 'POST',
+                body: formData,
+            }).then(r => r.json());
+
+            panel.image_hash = result.content_hash;
+            panel.source = 'upload';
+            this._renderPage();
+            this._renderPanelSelection();
+        } catch (error) {
+            console.error('Panel image upload failed:', error);
         }
     }
 

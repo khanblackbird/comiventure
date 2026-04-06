@@ -1342,6 +1342,31 @@ async def update_panel(panel_id: str, request: UpdatePanelRequest):
     return panel.to_dict()
 
 
+@router.post("/api/panels/{panel_id}/upload")
+async def upload_panel_image(panel_id: str, file: UploadFile = File(...)):
+    """Upload a custom image for a panel.
+
+    Stores in ContentStore, sets as the panel image with source='upload'.
+    The image can then be analyzed to discover tags and feed the
+    adversarial training loop just like generated images.
+    """
+    panel = _require_panel(panel_id)
+    if not content_store:
+        raise HTTPException(503, "Content store not available")
+
+    image_bytes = await file.read()
+    content_type = file.content_type or "image/png"
+    content_hash = content_store.store(image_bytes, content_type)
+
+    panel.update_image(content_hash, source="upload")
+
+    return {
+        "content_hash": content_hash,
+        "image_url": f"/api/content/{content_hash}",
+        "panel": panel.to_dict(),
+    }
+
+
 # --- Scripts ---
 
 @router.post("/api/scripts")
