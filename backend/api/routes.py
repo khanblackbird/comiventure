@@ -2395,6 +2395,10 @@ async def submit_feedback(request: FeedbackRequest):
             if panel and panel.discovered_tags:
                 prompt_with_discoveries += ", " + ", ".join(panel.discovered_tags)
 
+            # Uploaded images → test set (validate against ground truth)
+            # Generated images → training set (learn from model output)
+            is_upload = panel.source == "upload" if panel else False
+
             adapter._unified_trainer.add_from_generation(
                 visual_latent=vis,
                 language_latent=lang,
@@ -2403,6 +2407,7 @@ async def submit_feedback(request: FeedbackRequest):
                 reverse_caption=review_caption,
                 object_context=object_context,
                 match_score=match_score,
+                is_test=is_upload,
             )
 
     return {
@@ -2551,21 +2556,19 @@ async def train_adapter(request: TrainRequest = TrainRequest()):
                         log.warning("Failed to load LoRA weights: %s", e)
 
     last_result = results[-1] if results else None
+    trainer = getattr(adapter, '_unified_trainer', None)
     return {
         "adapter_hash": adv_hash,
         "status": "trained" if adv_hash else "no_data",
-        "pairs": (
-            adapter._unified_trainer.pair_count()
-            if getattr(adapter, '_unified_trainer', None) else 0
-        ),
-        "reviewed_pairs": (
-            adapter._unified_trainer.reviewed_pair_count()
-            if getattr(adapter, '_unified_trainer', None) else 0
-        ),
+        "train_pairs": trainer.train_pair_count() if trainer else 0,
+        "test_pairs": trainer.test_pair_count() if trainer else 0,
+        "reviewed_pairs": trainer.reviewed_pair_count() if trainer else 0,
         "visual_loss": last_result.visual_loss if last_result else None,
         "language_loss": last_result.language_loss if last_result else None,
         "review_loss": last_result.review_loss if last_result else None,
         "alignment": last_result.alignment if last_result else None,
+        "val_similarity": last_result.val_similarity if last_result else None,
+        "val_count": last_result.val_count if last_result else 0,
     }
 
 

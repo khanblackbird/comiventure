@@ -33,18 +33,22 @@ from backend.generator.adversarial_adapter import (
 
 @dataclass
 class TrainingPair:
-    """One complete training sample from a generation cycle."""
-    visual_latent: torch.Tensor       # captured from UNet
-    language_latent: torch.Tensor     # captured from text encoder
-    accepted: bool                    # user thumbs up/down
-    prompt_used: str                  # what was sent to the model
-    reverse_caption: str              # what LLaVA saw (for UI)
-    object_context: str               # ground truth from object graph (for UI)
-    match_score: float                # embedding cosine similarity (0-1)
-    # Latent embeddings from ollama — direct, no text conversion
-    image_embedding: Optional[torch.Tensor] = None    # LLaVA's view
-    prompt_embedding: Optional[torch.Tensor] = None   # Llama on prompt
-    context_embedding: Optional[torch.Tensor] = None  # Llama on object graph
+    """One sample from a generation or upload cycle.
+
+    is_test=False: AI-generated image → train on this
+    is_test=True:  user-uploaded image → validate against this (ground truth)
+    """
+    visual_latent: torch.Tensor
+    language_latent: torch.Tensor
+    accepted: bool
+    prompt_used: str
+    reverse_caption: str
+    object_context: str
+    match_score: float
+    is_test: bool = False
+    image_embedding: Optional[torch.Tensor] = None
+    prompt_embedding: Optional[torch.Tensor] = None
+    context_embedding: Optional[torch.Tensor] = None
 
 
 @dataclass
@@ -54,7 +58,10 @@ class TrainingResult:
     language_loss: float
     review_loss: float
     combined_loss: float
-    alignment: float                  # mean singular value of interaction
+    alignment: float
+    # Validation metrics (from test set — uploaded images)
+    val_similarity: Optional[float] = None
+    val_count: int = 0
 
 
 class UnifiedTrainer:
@@ -95,8 +102,13 @@ class UnifiedTrainer:
         reverse_caption: str = "",
         object_context: str = "",
         match_score: float = 0.5,
+        is_test: bool = False,
     ) -> None:
-        """Convenience: add a pair from a generation + review cycle."""
+        """Add a pair from a generation or upload cycle.
+
+        is_test=False: AI-generated → used for training
+        is_test=True:  user-uploaded → used for validation only
+        """
         self.pairs.append(TrainingPair(
             visual_latent=visual_latent.detach().cpu(),
             language_latent=language_latent.detach().cpu(),
@@ -105,22 +117,33 @@ class UnifiedTrainer:
             reverse_caption=reverse_caption,
             object_context=object_context,
             match_score=match_score,
+            is_test=is_test,
         ))
 
+    @property
+    def train_pairs(self) -> list[TrainingPair]:
+        """AI-generated images — used for training."""
+        return [p for p in self.pairs if not p.is_test]
+
+    @property
+    def test_pairs(self) -> list[TrainingPair]:
+        """User-uploaded images — used for validation only."""
+        return [p for p in self.pairs if p.is_test]
+
     def train(self, epochs: int = 5) -> list[TrainingResult]:
-        """Adversarial training — re-evaluates through the adapter each epoch.
+        """Train on generated images, validate against uploaded images.
+
+        Training pairs (is_test=False): gradient updates
+        Test pairs (is_test=True): validation loss only, no gradients
 
         Each epoch:
-        1. Pass visual latent through visual adapter → get adapted visual
-        2. Pass language latent through language adapter → get adapted language
-        3. Compute similarity in the adapted space (not the raw space)
-        4. The gap between adapted representations is the live loss
-        5. Update weights — which changes the adapted representations
-        6. Next epoch sees different representations → truly adversarial
-
-        The adapter weights and the representations co-evolve.
+        1. Train: forward + backward on generated image pairs
+        2. Validate: forward only on uploaded image pairs (no grad)
+        3. Report both metrics
         """
-        if not self.pairs:
+        train_data = self.train_pairs
+        test_data = self.test_pairs
+        if not train_data:
             return []
 
         self.adapter.train()
@@ -132,7 +155,8 @@ class UnifiedTrainer:
             epoch_language = 0.0
             epoch_review = 0.0
 
-            for pair in self.pairs:
+            # --- Training pass (generated images) ---
+            for pair in train_data:
                 vis_raw = pair.visual_latent.to(device).float()
                 lang_raw = pair.language_latent.to(device).float()
 
@@ -215,27 +239,58 @@ class UnifiedTrainer:
                 total.backward()
                 self.optimizer.step()
 
-            count = max(len(self.pairs), 1)
+            train_count = max(len(train_data), 1)
             _, S, _ = self.adapter.compute_interaction()
 
+            # --- Validation pass (uploaded images — no gradients) ---
+            val_sim = 0.0
+            val_count = len(test_data)
+            if test_data:
+                self.adapter.eval()
+                with torch.no_grad():
+                    for pair in test_data:
+                        vis_raw = pair.visual_latent.to(device).float()
+                        lang_raw = pair.language_latent.to(device).float()
+                        vis_adapted = self.adapter.visual_forward(
+                            vis_raw, vis_raw,
+                        )
+                        lang_adapted = self.adapter.language_forward(
+                            lang_raw, lang_raw,
+                        )
+                        vis_c = self.adapter.A_visual(vis_adapted)
+                        lang_c = self.adapter.A_language(lang_adapted)
+                        inter = vis_c @ self.adapter.interaction
+                        sim = torch.nn.functional.cosine_similarity(
+                            inter, lang_c, dim=-1,
+                        )
+                        val_sim += sim.mean().item()
+                self.adapter.train()
+
             result = TrainingResult(
-                visual_loss=epoch_visual / count,
-                language_loss=epoch_language / count,
-                review_loss=epoch_review / count,
+                visual_loss=epoch_visual / train_count,
+                language_loss=epoch_language / train_count,
+                review_loss=epoch_review / train_count,
                 combined_loss=(
                     epoch_visual + epoch_language + epoch_review
-                ) / count,
+                ) / train_count,
                 alignment=S.mean().item(),
+                val_similarity=val_sim / max(val_count, 1) if val_count else None,
+                val_count=val_count,
             )
             results.append(result)
 
             if (epoch == 0 or epoch == epochs - 1
                     or (epoch + 1) % max(1, epochs // 10) == 0):
+                val_str = (
+                    f" val={result.val_similarity:.4f}({val_count})"
+                    if result.val_similarity is not None else ""
+                )
                 log.info(
-                    "  Epoch %d/%d: vis=%.4f lang=%.4f review=%.4f align=%.4f",
+                    "  Epoch %d/%d: vis=%.4f lang=%.4f review=%.4f"
+                    " align=%.4f%s",
                     epoch + 1, epochs,
                     result.visual_loss, result.language_loss,
-                    result.review_loss, result.alignment,
+                    result.review_loss, result.alignment, val_str,
                 )
 
         self.adapter.eval()
@@ -243,6 +298,12 @@ class UnifiedTrainer:
 
     def pair_count(self) -> int:
         return len(self.pairs)
+
+    def train_pair_count(self) -> int:
+        return len(self.train_pairs)
+
+    def test_pair_count(self) -> int:
+        return len(self.test_pairs)
 
     def reviewed_pair_count(self) -> int:
         """Pairs that have review data (not just accept/reject)."""
