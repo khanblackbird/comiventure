@@ -2389,11 +2389,19 @@ async def submit_feedback(request: FeedbackRequest):
                 match_score = review.get("score", 0.5)
                 object_context = getattr(panel, '_last_object_context', "")
 
-            # Include discovered tags so training pairs reflect
-            # what's actually in the image (edits, analysis findings)
-            prompt_with_discoveries = request.prompt
+            # Include trigger tags + discovered tags in training prompt.
+            # The trigger tag teaches the adapter that "cvn_peter" = this
+            # character's visual identity. Discovered tags capture the
+            # gap between intended and actual image content.
+            prompt_with_context = request.prompt
+            for char_id in request.character_ids:
+                character = story.get_character(char_id)
+                if character:
+                    trigger = character.ensure_trigger_tag()
+                    if trigger not in prompt_with_context:
+                        prompt_with_context = trigger + ", " + prompt_with_context
             if panel and panel.discovered_tags:
-                prompt_with_discoveries += ", " + ", ".join(panel.discovered_tags)
+                prompt_with_context += ", " + ", ".join(panel.discovered_tags)
 
             # Uploaded images → test set (validate against ground truth)
             # Generated images → training set (learn from model output)
@@ -2403,7 +2411,7 @@ async def submit_feedback(request: FeedbackRequest):
                 visual_latent=vis,
                 language_latent=lang,
                 accepted=request.accepted,
-                prompt_used=prompt_with_discoveries,
+                prompt_used=prompt_with_context,
                 reverse_caption=review_caption,
                 object_context=object_context,
                 match_score=match_score,
@@ -2555,14 +2563,33 @@ async def train_adapter(request: TrainRequest = TrainRequest()):
                     except Exception as e:
                         log.warning("Failed to load LoRA weights: %s", e)
 
+                # Mark characters as trigger-trained — their trigger tag
+                # now maps to a learned visual identity in the adapter
+                trained_char_ids = set()
+                for pair in trainer.pairs:
+                    for word in pair.prompt_used.split(", "):
+                        if word.startswith("cvn_"):
+                            trained_char_ids.add(word)
+                for character in story.characters.values():
+                    if character.trigger_tag in trained_char_ids:
+                        character.trigger_trained = True
+                        log.info("Character '%s' trigger trained: %s",
+                                 character.name, character.trigger_tag)
+
     last_result = results[-1] if results else None
     trainer = getattr(adapter, '_unified_trainer', None)
+    trained_triggers = {
+        c.trigger_tag: c.name
+        for c in story.characters.values()
+        if c.trigger_trained
+    }
     return {
         "adapter_hash": adv_hash,
         "status": "trained" if adv_hash else "no_data",
         "train_pairs": trainer.train_pair_count() if trainer else 0,
         "test_pairs": trainer.test_pair_count() if trainer else 0,
         "reviewed_pairs": trainer.reviewed_pair_count() if trainer else 0,
+        "trained_triggers": trained_triggers,
         "visual_loss": last_result.visual_loss if last_result else None,
         "language_loss": last_result.language_loss if last_result else None,
         "review_loss": last_result.review_loss if last_result else None,

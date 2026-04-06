@@ -234,9 +234,11 @@ def _rebuild_story(data: dict) -> Story:
             from .profile import Profile
             character.profile = Profile.from_dict(profile_data)
 
-        # Restore conversations
+        # Restore conversations and trigger
         character.conversations = character_data.get("conversations", [])
         character.negative_prompt = character_data.get("negative_prompt", "")
+        character.trigger_tag = character_data.get("trigger_tag", "")
+        character.trigger_trained = character_data.get("trigger_trained", False)
 
         # Wire character to story WITHOUT cascade — data already loaded
         character.set_parent(story)

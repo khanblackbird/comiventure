@@ -44,13 +44,25 @@ class Character(Emitter):
         self.portrait_path = portrait_path
         self.is_temporary = is_temporary
         self.page_scope = page_scope
-        self.negative_prompt = ""  # per-character negative: "animal ears, tail" for humans
+        self.negative_prompt = ""
+        self.trigger_tag: str = ""  # learned identity token, e.g. "cvn_peter_rabbit"
+        self.trigger_trained: bool = False  # True once adapter has learned this character
         self.chapters: list[Chapter] = []
-        self.conversations: list[dict] = []  # saved conversation bank
+        self.conversations: list[dict] = []
 
         # Backwards compat
         if appearance_prompt:
             self.appearance.properties.art_style_notes = appearance_prompt
+
+    def ensure_trigger_tag(self) -> str:
+        """Get or create the trigger tag for this character.
+        Format: cvn_{name_normalized} — unique token the adapter learns.
+        """
+        if not self.trigger_tag:
+            import re
+            normalized = re.sub(r'[^a-z0-9]', '_', self.name.lower()).strip('_')
+            self.trigger_tag = f"cvn_{normalized}"
+        return self.trigger_tag
 
     @property
     def appearance_prompt(self) -> str:
@@ -58,13 +70,21 @@ class Character(Emitter):
         return self.appearance.to_prompt()
 
     def to_prompt(self) -> str:
-        """Character-level prompt contribution: appearance + physical traits.
-        This is the STANDARD anchor used in every panel this character appears in.
+        """Character-level prompt contribution.
+
+        If the adapter has learned this character (trigger_trained=True),
+        emit the trigger tag as the primary identifier — the adapter maps
+        it to the full visual identity. Appearance tags still included
+        as reinforcement for the base model.
+
+        If not trained yet, emit full appearance tags as before.
         """
         parts = []
+        if self.trigger_trained and self.trigger_tag:
+            # Trigger tag = learned shorthand for the full visual identity
+            parts.append(self.trigger_tag)
         if self.appearance_prompt:
             parts.append(self.appearance_prompt)
-        # Add physical traits from profile if they add visual detail
         if self.profile and self.profile.physical:
             if self.profile.physical.distinguishing_marks:
                 parts.append(self.profile.physical.distinguishing_marks)
@@ -186,6 +206,8 @@ class Character(Emitter):
             "portrait_path": self.portrait_path,
             "is_temporary": self.is_temporary,
             "page_scope": self.page_scope,
+            "trigger_tag": self.trigger_tag,
+            "trigger_trained": self.trigger_trained,
             "chapters": [chapter.chapter_id for chapter in self.chapters],
             "conversations": self.conversations,
         }
