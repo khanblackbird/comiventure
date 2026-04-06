@@ -32,8 +32,9 @@ class Panel(Emitter):
         self.video_hash = video_hash
         self.narration = narration
         self.shot_type = shot_type  # "wide", "medium", "close-up", "extreme close-up", "over-shoulder", "bird's eye"
-        self.negative_prompt = ""  # panel-specific negative
+        self.negative_prompt = ""
         self.scripts: dict[str, Script] = {}
+        self.discovered_tags: list[str] = []  # tags found via edit/analysis, not in scripts
         self.source: str = "empty"
 
     def create_script(
@@ -123,11 +124,31 @@ class Panel(Emitter):
         self.source = source
         self.emit_up("panel_updated", self)
 
+    def add_discovered_tags(self, tags: list[str]) -> None:
+        """Add tags discovered from edits or analysis.
+        Deduplicates against existing discovered tags and script tags.
+        """
+        existing = set(self.discovered_tags)
+        script_tags = set()
+        for script in self.scripts.values():
+            for tag in script.to_prompt().split(", "):
+                if tag:
+                    script_tags.add(tag)
+
+        for tag in tags:
+            if tag and tag not in existing and tag not in script_tags:
+                self.discovered_tags.append(tag)
+                existing.add(tag)
+
+        if tags:
+            self.emit_up("panel_updated", self)
+
     def to_prompt(self) -> str:
-        """Panel-level prompt tags: shot type."""
+        """Panel-level prompt tags: shot type + discovered tags."""
         parts = []
         if self.shot_type:
             parts.append(self.shot_type)
+        parts.extend(self.discovered_tags)
         return ", ".join(parts)
 
     def update_narration(self, narration: str) -> None:
@@ -154,6 +175,7 @@ class Panel(Emitter):
                 "narration": self.narration,
                 "shot_type": self.shot_type,
                 "negative_prompt": self.negative_prompt,
+                "discovered_tags": self.discovered_tags,
                 "scripts": {
                     character_id: script.to_dict()
                     for character_id, script in self.scripts.items()
@@ -170,6 +192,7 @@ class Panel(Emitter):
             "narration": self.narration,
             "shot_type": self.shot_type,
             "negative_prompt": self.negative_prompt,
+            "discovered_tags": self.discovered_tags,
             "scripts": {
                 character_id: script.to_dict()
                 for character_id, script in self.scripts.items()

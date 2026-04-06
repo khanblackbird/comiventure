@@ -615,3 +615,70 @@ class TestGetFieldSuggestions:
     def test_direction_maps_to_framing(self):
         suggestions = get_field_suggestions("unknown/model", "direction")
         assert len(suggestions) > 0
+
+
+# ── Panel discovered tags ────────────────────────────────────────────
+
+class TestDiscoveredTags:
+    """Tags discovered via edits/analysis that aren't in scripts."""
+
+    def _make_panel_with_script(self):
+        from backend.models import Panel, Script
+        panel = Panel("pan-1")
+        script = Script("scr-1", "char-1")
+        script.pose = "standing"
+        script.emotion = "smile"
+        panel.add_script(script)
+        return panel
+
+    def test_add_discovered_tags(self):
+        panel = self._make_panel_with_script()
+        panel.add_discovered_tags(["golden_brooch", "scar"])
+        assert "golden_brooch" in panel.discovered_tags
+        assert "scar" in panel.discovered_tags
+
+    def test_deduplicates(self):
+        panel = self._make_panel_with_script()
+        panel.add_discovered_tags(["golden_brooch"])
+        panel.add_discovered_tags(["golden_brooch", "scar"])
+        assert panel.discovered_tags.count("golden_brooch") == 1
+        assert "scar" in panel.discovered_tags
+
+    def test_excludes_existing_script_tags(self):
+        panel = self._make_panel_with_script()
+        # "standing" is already in the script
+        panel.add_discovered_tags(["standing", "golden_brooch"])
+        assert "standing" not in panel.discovered_tags
+        assert "golden_brooch" in panel.discovered_tags
+
+    def test_included_in_to_prompt(self):
+        panel = self._make_panel_with_script()
+        panel.shot_type = "close-up"
+        panel.add_discovered_tags(["golden_brooch"])
+        prompt = panel.to_prompt()
+        assert "close-up" in prompt
+        assert "golden_brooch" in prompt
+
+    def test_included_in_to_dict(self):
+        panel = self._make_panel_with_script()
+        panel.add_discovered_tags(["scar", "necklace"])
+        d = panel.to_dict()
+        assert d["discovered_tags"] == ["scar", "necklace"]
+
+    def test_included_in_context(self):
+        panel = self._make_panel_with_script()
+        panel.add_discovered_tags(["golden_brooch"])
+        ctx = panel._own_context()
+        assert "golden_brooch" in ctx["panel"]["discovered_tags"]
+
+    def test_empty_by_default(self):
+        from backend.models import Panel
+        panel = Panel("pan-1")
+        assert panel.discovered_tags == []
+        assert panel.to_dict()["discovered_tags"] == []
+
+    def test_empty_tags_ignored(self):
+        panel = self._make_panel_with_script()
+        panel.add_discovered_tags(["", "  ", "valid_tag"])
+        assert "valid_tag" in panel.discovered_tags
+        assert "" not in panel.discovered_tags

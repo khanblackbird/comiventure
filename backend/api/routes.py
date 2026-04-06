@@ -1563,9 +1563,17 @@ async def inpaint_panel(request: InpaintRequest):
 
     panel.update_image(content_hash, source="ai")
 
+    # Inpaint prompt describes what was ADDED — store as discovered tags
+    # so training pairs reflect what's actually in the image.
+    from backend.generator.tag_vocabulary import normalize_tags as _norm_tags
+    edit_tags = _norm_tags(request.prompt)
+    if edit_tags:
+        panel.add_discovered_tags(edit_tags)
+
     return {
         "content_hash": content_hash,
         "image_url": f"/api/content/{content_hash}",
+        "discovered_tags": panel.discovered_tags,
         "panel": panel.to_dict(),
     }
 
@@ -1751,16 +1759,37 @@ async def analyze_panel_image(panel_id: str):
             "current_appearance": character.appearance.properties.to_dict(),
         })
 
-    # Store on panel for the training loop
-    panel._last_analysis = {
-        "character": result.character.__dict__,
-        "art_style": result.art_style.__dict__,
-        "raw_caption": result.raw_caption,
-    }
+    # Discover tags: anything analysis found that isn't in scripts already.
+    # These become discovered_tags on the panel so training pairs
+    # reflect what's actually in the image, not just what was intended.
+    from backend.generator.tag_vocabulary import normalize_tag as _norm
+    analysis_tags = []
+    for value in (
+        result.character.species, result.character.hair_style,
+        result.character.hair_colour, result.character.eye_colour,
+        result.character.outfit, result.character.accessories,
+        result.character.pose, result.character.expression,
+    ):
+        if value:
+            analysis_tags.append(_norm(value))
+
+    # Collect what scripts already describe
+    script_tags = set()
+    for script in panel.scripts.values():
+        for tag in script.to_prompt().split(", "):
+            if tag:
+                script_tags.add(tag)
+
+    novel_tags = [t for t in analysis_tags if t and t not in script_tags]
+    if novel_tags:
+        panel.add_discovered_tags(novel_tags)
+        log.info("Panel %s: discovered %d novel tags: %s",
+                 panel_id, len(novel_tags), novel_tags)
 
     return {
         "panel_id": panel_id,
         "raw_caption": result.raw_caption,
+        "discovered_tags": novel_tags,
         "analysis": {
             "character": {
                 "species": result.character.species,
@@ -2238,11 +2267,17 @@ async def submit_feedback(request: FeedbackRequest):
                 match_score = review.get("score", 0.5)
                 object_context = getattr(panel, '_last_object_context', "")
 
+            # Include discovered tags so training pairs reflect
+            # what's actually in the image (edits, analysis findings)
+            prompt_with_discoveries = request.prompt
+            if panel and panel.discovered_tags:
+                prompt_with_discoveries += ", " + ", ".join(panel.discovered_tags)
+
             adapter._unified_trainer.add_from_generation(
                 visual_latent=vis,
                 language_latent=lang,
                 accepted=request.accepted,
-                prompt_used=request.prompt,
+                prompt_used=prompt_with_discoveries,
                 reverse_caption=review_caption,
                 object_context=object_context,
                 match_score=match_score,

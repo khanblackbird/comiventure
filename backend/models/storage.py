@@ -168,6 +168,7 @@ def _rebuild_story(data: dict) -> Story:
                 )
                 panel.source = panel_data.get("source", "empty")
                 panel.negative_prompt = panel_data.get("negative_prompt", "")
+                panel.discovered_tags = panel_data.get("discovered_tags", [])
 
                 # Rebuild scripts
                 for character_id, script_data in panel_data.get("scripts", {}).items():
