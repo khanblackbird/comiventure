@@ -35,8 +35,10 @@ from backend.generator.adversarial_adapter import (
 class TrainingPair:
     """One sample from a generation or upload cycle.
 
-    is_test=False: AI-generated image → train on this
-    is_test=True:  user-uploaded image → validate against this (ground truth)
+    is_test:          False=generated (train), True=uploaded (validate)
+    generation_round: which training round produced this latent.
+                      Latents from round N were generated with LoRA_N-1.
+                      Mixing rounds means mixing implicit distributions.
     """
     visual_latent: torch.Tensor
     language_latent: torch.Tensor
@@ -46,6 +48,7 @@ class TrainingPair:
     object_context: str
     match_score: float
     is_test: bool = False
+    generation_round: int = 0
     image_embedding: Optional[torch.Tensor] = None
     prompt_embedding: Optional[torch.Tensor] = None
     context_embedding: Optional[torch.Tensor] = None
@@ -89,6 +92,7 @@ class UnifiedTrainer:
         self.visual_weight = visual_weight
         self.language_weight = language_weight
         self.review_weight = review_weight
+        self.current_round: int = 0
 
     def add_pair(self, pair: TrainingPair) -> None:
         self.pairs.append(pair)
@@ -108,6 +112,10 @@ class UnifiedTrainer:
 
         is_test=False: AI-generated → used for training
         is_test=True:  user-uploaded → used for validation only
+
+        generation_round is set automatically — tracks which LoRA state
+        was active when this latent was captured, so training can weight
+        recent pairs higher (they come from the current implicit distribution).
         """
         self.pairs.append(TrainingPair(
             visual_latent=visual_latent.detach().cpu(),
@@ -118,6 +126,7 @@ class UnifiedTrainer:
             object_context=object_context,
             match_score=match_score,
             is_test=is_test,
+            generation_round=self.current_round,
         ))
 
     @property
@@ -150,13 +159,23 @@ class UnifiedTrainer:
         device = next(self.adapter.parameters()).device
         results = []
 
+        # Compute recency weights — pairs from the current LoRA state
+        # are more relevant than stale pairs from earlier rounds.
+        # Exponential decay: weight = decay^(current_round - pair_round)
+        decay = 0.7
+        pair_weights = []
+        for pair in train_data:
+            age = self.current_round - pair.generation_round
+            pair_weights.append(decay ** age)
+
         for epoch in range(epochs):
             epoch_visual = 0.0
             epoch_language = 0.0
             epoch_review = 0.0
 
             # --- Training pass (generated images) ---
-            for pair in train_data:
+            for pair_idx, pair in enumerate(train_data):
+                recency = pair_weights[pair_idx]
                 vis_raw = pair.visual_latent.to(device).float()
                 lang_raw = pair.language_latent.to(device).float()
 
@@ -223,15 +242,15 @@ class UnifiedTrainer:
                 # 3. Review loss — alignment regularisation
                 review_loss = self.adapter.alignment_loss()
 
-                total = (
+                total = recency * (
                     self.visual_weight * visual_loss
                     + self.language_weight * language_loss
                     + self.review_weight * review_loss
                 )
 
-                epoch_visual += visual_loss.item()
-                epoch_language += language_loss.item()
-                epoch_review += review_loss.item()
+                epoch_visual += visual_loss.item() * recency
+                epoch_language += language_loss.item() * recency
+                epoch_review += review_loss.item() * recency
 
                 self.optimizer.zero_grad()
                 total.backward()
@@ -292,6 +311,7 @@ class UnifiedTrainer:
                 )
 
         self.adapter.eval()
+        self.current_round += 1
         return results
 
     def pair_count(self) -> int:
