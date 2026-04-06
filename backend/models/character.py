@@ -56,12 +56,15 @@ class Character(Emitter):
 
     def ensure_trigger_tag(self) -> str:
         """Get or create the trigger tag for this character.
+
         Format: cvn_{name_normalized} — unique token the adapter learns.
+        Emits character_updated when a new trigger is created.
         """
         if not self.trigger_tag:
             import re
             normalized = re.sub(r'[^a-z0-9]', '_', self.name.lower()).strip('_')
             self.trigger_tag = f"cvn_{normalized}"
+            self.emit("character_updated", self)
         return self.trigger_tag
 
     @property
@@ -112,6 +115,7 @@ class Character(Emitter):
         ]
 
     def get_chapter(self, chapter_id: str) -> Chapter | None:
+        """Return the chapter with the given ID, or None if not found."""
         for chapter in self.chapters:
             if chapter.chapter_id == chapter_id:
                 return chapter
@@ -176,6 +180,8 @@ class Character(Emitter):
                 "personality_prompt": self.personality_prompt,
                 "appearance_prompt": self.appearance_prompt,
                 "negative_prompt": self.negative_prompt,
+                "trigger_tag": self.trigger_tag,
+                "trigger_trained": self.trigger_trained,
                 "appearance": self.appearance.to_dict(),
                 "profile": self.profile.to_dict(),
             }
@@ -194,6 +200,7 @@ class Character(Emitter):
         return "\n".join(parts)
 
     def to_dict(self) -> dict:
+        """Serialize the character to a plain dict for storage/API responses."""
         return {
             "character_id": self.character_id,
             "name": self.name,

@@ -211,3 +211,34 @@ class TestRepair:
         second = story.repair()
         assert len(first) > 0
         assert len(second) == 0
+
+
+class TestTagObservationValidation:
+    """validate() must flag bad TagObservation entries on panels."""
+
+    def test_empty_observed_tag_flagged(self):
+        from backend.models.panel import TagObservation
+        story = make_story()
+        panel = get_chain(story)["panel"]
+        panel.tag_observations.append(TagObservation(observed_tag="", source="review"))
+        errors = story.validate()
+        assert any("empty observed_tag" in e for e in errors)
+
+    def test_missing_source_flagged(self):
+        from backend.models.panel import TagObservation
+        story = make_story()
+        panel = get_chain(story)["panel"]
+        panel.tag_observations.append(TagObservation(observed_tag="brooch", source=""))
+        errors = story.validate()
+        assert any("missing source" in e for e in errors)
+
+    def test_valid_observations_pass(self):
+        from backend.models.panel import TagObservation
+        story = make_story()
+        panel = get_chain(story)["panel"]
+        panel.tag_observations.append(
+            TagObservation(observed_tag="brooch", source="review")
+        )
+        errors = story.validate()
+        assert not any("observed_tag" in e for e in errors)
+        assert not any("missing source" in e for e in errors)

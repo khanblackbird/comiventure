@@ -33,6 +33,7 @@ class TagObservation:
     confidence: float = 1.0
 
     def to_dict(self) -> dict:
+        """Serialize this observation to a plain dict."""
         return {
             "observed_tag": self.observed_tag,
             "source_tags": self.source_tags,
@@ -45,6 +46,7 @@ class TagObservation:
 
     @classmethod
     def from_dict(cls, data: dict) -> TagObservation:
+        """Deserialize a TagObservation from a plain dict."""
         return cls(
             observed_tag=data.get("observed_tag", ""),
             source_tags=data.get("source_tags", []),
@@ -152,6 +154,7 @@ class Panel(Emitter):
         self.emit_up("panel_updated", self)
 
     def get_script(self, character_id: str) -> Optional[Script]:
+        """Return the script for the given character, or None if absent."""
         return self.scripts.get(character_id)
 
     def update_image(self, image_hash: str, source: str = "ai") -> None:
@@ -250,6 +253,7 @@ class Panel(Emitter):
         return ", ".join(parts)
 
     def update_narration(self, narration: str) -> None:
+        """Set the panel narration text and propagate upward."""
         self.narration = narration
         self.emit_up("panel_updated", self)
 
@@ -283,6 +287,7 @@ class Panel(Emitter):
         }
 
     def to_dict(self) -> dict:
+        """Serialize the panel to a plain dict for storage/API responses."""
         return {
             "panel_id": self.panel_id,
             "image_hash": self.image_hash,

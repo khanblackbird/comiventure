@@ -750,3 +750,77 @@ class TestTagObservations:
         ctx = panel._own_context()
         assert len(ctx["panel"]["tag_observations"]) == 1
         assert ctx["panel"]["tag_observations"][0]["observed_tag"] == "brooch"
+
+
+# ── Character trigger_tag ────────────────────────────────────────────
+
+class TestCharacterTriggerTag:
+    """Tests for Character.trigger_tag — learned identity token for adapter."""
+
+    def test_ensure_trigger_tag_generates_from_name(self):
+        from backend.models import Character
+        char = Character("c1", "Peter Rabbit")
+        tag = char.ensure_trigger_tag()
+        assert tag.startswith("cvn_")
+        assert "peter" in tag
+        assert "rabbit" in tag
+
+    def test_ensure_trigger_tag_idempotent(self):
+        from backend.models import Character
+        char = Character("c1", "Luna")
+        tag1 = char.ensure_trigger_tag()
+        tag2 = char.ensure_trigger_tag()
+        assert tag1 == tag2
+
+    def test_trigger_tag_in_own_context(self):
+        from backend.models import Character
+        char = Character("c1", "Luna")
+        char.ensure_trigger_tag()
+        ctx = char._own_context()
+        assert ctx["character"]["trigger_tag"] == char.trigger_tag
+        assert ctx["character"]["trigger_tag"] != ""
+
+    def test_trigger_trained_in_own_context_and_to_dict(self):
+        from backend.models import Character
+        char = Character("c1", "Luna")
+        char.trigger_trained = True
+        ctx = char._own_context()
+        assert ctx["character"]["trigger_trained"] is True
+        d = char.to_dict()
+        assert d["trigger_trained"] is True
+
+    def test_to_prompt_includes_trigger_tag_when_trained(self):
+        from backend.models import Character
+        char = Character("c1", "Luna")
+        char.ensure_trigger_tag()
+        char.trigger_trained = True
+        prompt = char.to_prompt()
+        assert char.trigger_tag in prompt
+
+    def test_to_prompt_excludes_trigger_tag_when_not_trained(self):
+        from backend.models import Character
+        char = Character("c1", "Luna")
+        char.ensure_trigger_tag()
+        char.trigger_trained = False
+        prompt = char.to_prompt()
+        assert char.trigger_tag not in prompt
+
+    def test_trigger_tag_format(self):
+        from backend.models import Character
+        char = Character("c1", "Luna")
+        tag = char.ensure_trigger_tag()
+        assert tag == "cvn_luna"
+
+    def test_special_characters_normalized(self):
+        from backend.models import Character
+        # Spaces become underscores, punctuation stripped
+        char = Character("c1", "Mr. Whiskers Jr!")
+        tag = char.ensure_trigger_tag()
+        assert tag.startswith("cvn_")
+        assert " " not in tag
+        assert "." not in tag
+        assert "!" not in tag
+        # Should be something like cvn_mr__whiskers_jr
+        assert "mr" in tag
+        assert "whiskers" in tag
+        assert "jr" in tag

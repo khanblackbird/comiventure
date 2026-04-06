@@ -365,3 +365,77 @@ class TestReviewFeedsTraining:
         )
         assert result.match_score == 0.85
         assert result.suggestion == "looks good"
+
+
+class TestRecencyWeights:
+    """Tests for UnifiedTrainer._recency_weights — exponential decay by round age."""
+
+    def _make_trainer(self):
+        from backend.generator.adversarial_adapter import AdversarialAdapter
+        from backend.generator.unified_trainer import UnifiedTrainer
+        adapter = AdversarialAdapter(hidden_dim=16, rank=2)
+        return UnifiedTrainer(adapter)
+
+    def _make_pair(self, generation_round: int = 0):
+        from backend.generator.unified_trainer import TrainingPair
+        import torch
+        return TrainingPair(
+            visual_latent=torch.randn(1, 16),
+            language_latent=torch.randn(1, 16),
+            accepted=True,
+            prompt_used="test",
+            reverse_caption="test",
+            object_context="test",
+            match_score=0.5,
+            generation_round=generation_round,
+        )
+
+    def test_current_round_pairs_get_weight_1(self):
+        trainer = self._make_trainer()
+        trainer.current_round = 3
+        pairs = [self._make_pair(generation_round=3)]
+        weights = trainer._recency_weights(pairs)
+        assert weights == [1.0]
+
+    def test_older_pairs_decay_exponentially(self):
+        trainer = self._make_trainer()
+        trainer.current_round = 4
+        # Round 2 pair: age = 4 - 2 = 2, weight = 0.7^2 = 0.49
+        pairs = [self._make_pair(generation_round=2)]
+        weights = trainer._recency_weights(pairs)
+        assert abs(weights[0] - 0.49) < 1e-9
+
+    def test_all_pairs_from_same_round_get_same_weight(self):
+        trainer = self._make_trainer()
+        trainer.current_round = 5
+        pairs = [self._make_pair(generation_round=3) for _ in range(4)]
+        weights = trainer._recency_weights(pairs)
+        assert all(w == weights[0] for w in weights)
+        # age = 5-3 = 2, weight = 0.7^2 = 0.49
+        assert abs(weights[0] - 0.49) < 1e-9
+
+    def test_empty_list_returns_empty_list(self):
+        trainer = self._make_trainer()
+        weights = trainer._recency_weights([])
+        assert weights == []
+
+    def test_custom_decay_parameter(self):
+        trainer = self._make_trainer()
+        trainer.current_round = 3
+        pairs = [self._make_pair(generation_round=1)]
+        # age = 3-1 = 2, decay=0.5, weight = 0.5^2 = 0.25
+        weights = trainer._recency_weights(pairs, decay=0.5)
+        assert abs(weights[0] - 0.25) < 1e-9
+
+    def test_mixed_rounds_produce_different_weights(self):
+        trainer = self._make_trainer()
+        trainer.current_round = 3
+        pairs = [
+            self._make_pair(generation_round=3),  # weight 1.0
+            self._make_pair(generation_round=2),  # weight 0.7
+            self._make_pair(generation_round=1),  # weight 0.49
+        ]
+        weights = trainer._recency_weights(pairs)
+        assert abs(weights[0] - 1.0) < 1e-9
+        assert abs(weights[1] - 0.7) < 1e-9
+        assert abs(weights[2] - 0.49) < 1e-9

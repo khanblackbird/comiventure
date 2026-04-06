@@ -2363,12 +2363,7 @@ async def submit_feedback(request: FeedbackRequest):
 
     # Capture training pair — includes review data if available
     if image_generator and image_generator._last_visual_latent is not None:
-        if not hasattr(adapter, '_unified_trainer') or adapter._unified_trainer is None:
-            from backend.generator.adversarial_adapter import AdversarialAdapter
-            from backend.generator.unified_trainer import UnifiedTrainer
-            hidden_dim = image_generator._last_visual_latent.shape[-1]
-            adv_adapter = AdversarialAdapter(hidden_dim=hidden_dim, rank=adapter.lora_rank)
-            adapter._unified_trainer = UnifiedTrainer(adv_adapter)
+        _ensure_unified_trainer(adapter, image_generator)
 
         if image_generator._last_language_latent is not None:
             vis = image_generator._last_visual_latent
@@ -2389,19 +2384,9 @@ async def submit_feedback(request: FeedbackRequest):
                 match_score = review.get("score", 0.5)
                 object_context = getattr(panel, '_last_object_context', "")
 
-            # Include trigger tags + discovered tags in training prompt.
-            # The trigger tag teaches the adapter that "cvn_peter" = this
-            # character's visual identity. Discovered tags capture the
-            # gap between intended and actual image content.
-            prompt_with_context = request.prompt
-            for char_id in request.character_ids:
-                character = story.get_character(char_id)
-                if character:
-                    trigger = character.ensure_trigger_tag()
-                    if trigger not in prompt_with_context:
-                        prompt_with_context = trigger + ", " + prompt_with_context
-            if panel and panel.discovered_tags:
-                prompt_with_context += ", " + ", ".join(panel.discovered_tags)
+            prompt_with_context = _compose_training_prompt(
+                request.prompt, request.character_ids, panel,
+            )
 
             # Uploaded images → test set (validate against ground truth)
             # Generated images → training set (learn from model output)
@@ -2792,3 +2777,41 @@ def _require_character_in_hierarchy(character_id: str, panel: Panel) -> None:
             f"Character '{character_id}' is not in this panel's chapter. "
             f"Chapter characters: {chapter_character_ids}"
         )
+
+
+def _ensure_unified_trainer(adapter, gen) -> None:
+    """Initialize the unified trainer on the adapter if not present.
+
+    Creates an AdversarialAdapter sized to match the captured latents,
+    wraps it in a UnifiedTrainer, and attaches to the story adapter.
+    """
+    if hasattr(adapter, '_unified_trainer') and adapter._unified_trainer is not None:
+        return
+    from backend.generator.adversarial_adapter import AdversarialAdapter
+    from backend.generator.unified_trainer import UnifiedTrainer
+    hidden_dim = gen._last_visual_latent.shape[-1]
+    adv_adapter = AdversarialAdapter(hidden_dim=hidden_dim, rank=adapter.lora_rank)
+    adapter._unified_trainer = UnifiedTrainer(adv_adapter)
+
+
+def _compose_training_prompt(
+    base_prompt: str,
+    character_ids: list[str],
+    panel=None,
+) -> str:
+    """Build the training prompt with trigger tags and discovered tags.
+
+    Prepends character trigger tags so the adapter learns character
+    identity tokens. Appends panel discovered tags to capture the
+    gap between generation intent and actual image content.
+    """
+    prompt = base_prompt
+    for char_id in character_ids:
+        character = story.get_character(char_id) if story else None
+        if character:
+            trigger = character.ensure_trigger_tag()
+            if trigger not in prompt:
+                prompt = trigger + ", " + prompt
+    if panel and panel.discovered_tags:
+        prompt += ", " + ", ".join(panel.discovered_tags)
+    return prompt

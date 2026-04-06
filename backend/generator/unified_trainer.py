@@ -159,14 +159,7 @@ class UnifiedTrainer:
         device = next(self.adapter.parameters()).device
         results = []
 
-        # Compute recency weights — pairs from the current LoRA state
-        # are more relevant than stale pairs from earlier rounds.
-        # Exponential decay: weight = decay^(current_round - pair_round)
-        decay = 0.7
-        pair_weights = []
-        for pair in train_data:
-            age = self.current_round - pair.generation_round
-            pair_weights.append(decay ** age)
+        pair_weights = self._recency_weights(train_data)
 
         for epoch in range(epochs):
             epoch_visual = 0.0
@@ -313,6 +306,25 @@ class UnifiedTrainer:
         self.adapter.eval()
         self.current_round += 1
         return results
+
+    def _recency_weights(
+        self, pairs: list[TrainingPair], decay: float = 0.7,
+    ) -> list[float]:
+        """Exponential decay weights based on pair age.
+
+        Pairs from the current LoRA round get weight 1.0. Older pairs
+        decay exponentially because the implicit latent distribution
+        shifted when LoRA weights were loaded.
+
+        Args:
+            pairs: Training pairs to weight.
+            decay: Per-round decay factor. 0.7 means round N-1 pairs
+                   get 70% weight, N-2 gets 49%, etc.
+
+        Returns:
+            List of weights, one per pair.
+        """
+        return [decay ** (self.current_round - p.generation_round) for p in pairs]
 
     def pair_count(self) -> int:
         return len(self.pairs)

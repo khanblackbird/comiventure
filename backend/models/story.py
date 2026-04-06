@@ -340,6 +340,18 @@ class Story(Emitter):
                                 f"not in chapter '{chapter_id}'"
                             )
 
+                    # Validate tag observations
+                    for obs in panel.tag_observations:
+                        if not obs.observed_tag:
+                            errors.append(
+                                f"Panel '{panel.panel_id}' has empty observed_tag"
+                            )
+                        if not obs.source:
+                            errors.append(
+                                f"Panel '{panel.panel_id}' observation "
+                                f"'{obs.observed_tag}' missing source"
+                            )
+
         return errors
 
     def repair(self) -> list[str]:
