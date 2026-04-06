@@ -743,7 +743,6 @@ class ComiventureApp {
         };
 
         document.getElementById('btn-generate-panel').addEventListener('click', () => this._generatePanel());
-        document.getElementById('btn-save-to-bank').addEventListener('click', () => this._savePanelToBank());
 
         // Chat
         document.getElementById('btn-send').addEventListener('click', () => this._sendChat());
@@ -773,11 +772,7 @@ class ComiventureApp {
         document.getElementById('btn-thumbs-up').addEventListener('click', () => this._submitFeedback(true));
         document.getElementById('btn-thumbs-down').addEventListener('click', () => this._submitFeedback(false));
         document.getElementById('btn-train-adapter').addEventListener('click', () => this._trainAdapter());
-        document.getElementById('btn-review').addEventListener('click', () => this._reviewPanel());
-        document.getElementById('btn-apply-review').addEventListener('click', () => this._applyReviewSuggestions());
         document.getElementById('btn-analyze-panel').addEventListener('click', () => this._analyzePanel());
-        document.getElementById('btn-apply-to-scripts').addEventListener('click', () => this._applyPanelAnalysis('scripts'));
-        document.getElementById('btn-apply-to-character').addEventListener('click', () => this._applyPanelAnalysis('character'));
         document.getElementById('btn-apply-to-both').addEventListener('click', () => this._applyPanelAnalysis('both'));
 
         // Chat actions
@@ -1007,8 +1002,6 @@ class ComiventureApp {
             this._loadPanelProps();
             document.getElementById('btn-generate-panel').disabled =
                 this.isGenerating || !this._panelHasScripts();
-            document.getElementById('btn-save-to-bank').disabled =
-                !this.selectedPanel?.image_hash;
 
             // Show feedback if panel has an image
             const feedbackEl = document.getElementById('panel-feedback');
@@ -1353,8 +1346,6 @@ class ComiventureApp {
             // Enable generate if panel now has scripts
             document.getElementById('btn-generate-panel').disabled =
                 this.isGenerating || !this._panelHasScripts();
-            document.getElementById('btn-save-to-bank').disabled =
-                !this.selectedPanel?.image_hash;
         } catch (error) {
             console.error('Failed to update script:', error);
         }
@@ -1811,131 +1802,6 @@ class ComiventureApp {
         }
     }
 
-    async _reviewPanel() {
-        const panel = this.selectedPanel;
-        if (!panel || !panel.image_hash) return;
-
-        const reviewBtn = document.getElementById('btn-review');
-        reviewBtn.disabled = true;
-        reviewBtn.textContent = 'Reviewing...';
-
-        // Clear pending suggestions
-        this._pendingReviewSuggestions = {};
-
-        try {
-            const result = await api._post(`/api/review/${panel.panel_id}`, {});
-
-            const reviewEl = document.getElementById('review-result');
-            reviewEl.hidden = false;
-
-            const scorePercent = Math.round(result.match_score * 100);
-            const scoreColor = scorePercent > 70 ? '#4c4' : scorePercent > 40 ? '#cc4' : '#c44';
-
-            reviewEl.querySelector('.review-score').innerHTML =
-                `Match: <span style="color:${scoreColor}">${scorePercent}%</span>`;
-            reviewEl.querySelector('.review-caption').textContent =
-                `AI sees: ${result.reverse_caption}`;
-            reviewEl.querySelector('.review-differences').textContent =
-                result.differences.length > 0
-                    ? `Mismatches: ${result.differences.join(', ')}`
-                    : '';
-            reviewEl.querySelector('.review-suggestion').textContent =
-                result.suggestion ? `Suggestion: ${result.suggestion}` : '';
-
-            console.log('=== Review Result ===');
-            console.log('Original prompt:', result.original_prompt);
-            console.log('AI caption:', result.reverse_caption);
-            console.log('Score:', result.match_score);
-            console.log('Differences:', result.differences);
-            console.log('Suggestion:', result.suggestion);
-
-            // Ask LLM to extract structured suggestions per character
-            if (result.reverse_caption && panel.scripts) {
-                try {
-                    const characterIds = Object.keys(panel.scripts);
-                    for (const charId of characterIds) {
-                        const suggestResult = await api.suggestScripts(
-                            charId, panel.panel_id
-                        );
-                        if (suggestResult.suggestions) {
-                            const s = suggestResult.suggestions;
-                            this._pendingReviewSuggestions[charId] = s;
-
-                            const charName = this.characters[charId]?.name || charId;
-                            const parts = [
-                                s.action ? `*${s.action}*` : null,
-                                s.emotion ? `Emotion: ${s.emotion}` : null,
-                                s.pose ? `Pose: ${s.pose}` : null,
-                                s.outfit ? `Outfit: ${s.outfit}` : null,
-                                s.direction ? `Direction: ${s.direction}` : null,
-                            ].filter(Boolean);
-                            if (parts.length > 0) {
-                                this._addChatMessage(
-                                    `Review: ${charName}`,
-                                    parts.join('\n'),
-                                    'character',
-                                    { suggestion: s, characterId: charId }
-                                );
-                            }
-                        }
-                    }
-                } catch (error) {
-                    console.warn('Auto-suggest from review failed:', error);
-                }
-            }
-
-            // Show Apply button if we have suggestions
-            const applyBtn = document.getElementById('btn-apply-review');
-            applyBtn.hidden = Object.keys(this._pendingReviewSuggestions).length === 0;
-
-        } catch (error) {
-            console.error('Review failed:', error);
-        } finally {
-            reviewBtn.disabled = false;
-            reviewBtn.textContent = 'Review';
-        }
-    }
-
-    async _applyReviewSuggestions() {
-        const panel = this.selectedPanel;
-        if (!panel || !this._pendingReviewSuggestions) return;
-
-        const applyBtn = document.getElementById('btn-apply-review');
-        applyBtn.disabled = true;
-        applyBtn.textContent = 'Applying...';
-
-        try {
-            // Apply suggestions to each character's script
-            for (const [charId, suggestion] of Object.entries(this._pendingReviewSuggestions)) {
-                const script = panel.scripts[charId];
-                if (!script) continue;
-
-                const updates = {};
-                if (suggestion.action) updates.action = suggestion.action;
-                if (suggestion.emotion) updates.emotion = suggestion.emotion;
-                if (suggestion.direction) updates.direction = suggestion.direction;
-                // Dialogue is NOT auto-filled — user writes it manually
-                if (suggestion.pose) updates.pose = suggestion.pose;
-
-                if (Object.keys(updates).length > 0) {
-                    await api.updateScript(script.script_id, updates);
-                    Object.assign(script, updates);
-                }
-            }
-
-            // Re-render the scripts to show updated values
-            this._renderPanelScripts();
-            this._pendingReviewSuggestions = {};
-            applyBtn.hidden = true;
-
-        } catch (error) {
-            console.error('Failed to apply suggestions:', error);
-        } finally {
-            applyBtn.disabled = false;
-            applyBtn.textContent = 'Apply Suggestions';
-        }
-    }
-
     async _analyzePanel() {
         const panel = this.selectedPanel;
         if (!panel || !panel.image_hash) return;
@@ -1976,6 +1842,37 @@ class ComiventureApp {
                 row.appendChild(span);
                 fieldsEl.appendChild(row);
             }
+
+            // Also run review (merged from _reviewPanel)
+            try {
+                const reviewResult = await api._post(`/api/review/${panel.panel_id}`, {});
+
+                const reviewEl = document.getElementById('review-result');
+                reviewEl.hidden = false;
+
+                const scorePercent = Math.round(reviewResult.match_score * 100);
+                const scoreColor = scorePercent > 70 ? '#4c4' : scorePercent > 40 ? '#cc4' : '#c44';
+
+                reviewEl.querySelector('.review-score').innerHTML =
+                    `Match: <span style="color:${scoreColor}">${scorePercent}%</span>`;
+                reviewEl.querySelector('.review-caption').textContent =
+                    `AI sees: ${reviewResult.reverse_caption}`;
+                reviewEl.querySelector('.review-differences').textContent =
+                    reviewResult.differences.length > 0
+                        ? `Mismatches: ${reviewResult.differences.join(', ')}`
+                        : '';
+                reviewEl.querySelector('.review-suggestion').textContent =
+                    reviewResult.suggestion ? `Suggestion: ${reviewResult.suggestion}` : '';
+
+                console.log('=== Review Result ===');
+                console.log('Original prompt:', reviewResult.original_prompt);
+                console.log('AI caption:', reviewResult.reverse_caption);
+                console.log('Score:', reviewResult.match_score);
+                console.log('Differences:', reviewResult.differences);
+                console.log('Suggestion:', reviewResult.suggestion);
+            } catch (reviewError) {
+                console.warn('Review step failed:', reviewError);
+            }
         } catch (error) {
             console.error('Panel analysis failed:', error);
         } finally {
@@ -1988,12 +1885,7 @@ class ComiventureApp {
         const panel = this.selectedPanel;
         if (!panel || !this._pendingPanelAnalysis) return;
 
-        const btnId = {
-            scripts: 'btn-apply-to-scripts',
-            character: 'btn-apply-to-character',
-            both: 'btn-apply-to-both',
-        }[target];
-        const btn = document.getElementById(btnId);
+        const btn = document.getElementById('btn-apply-to-both');
         btn.disabled = true;
         btn.textContent = 'Applying...';
 
@@ -2035,11 +1927,7 @@ class ComiventureApp {
             console.error('Apply panel analysis failed:', error);
         } finally {
             btn.disabled = false;
-            btn.textContent = {
-                scripts: 'Apply to Scripts',
-                character: 'Apply to Character',
-                both: 'Apply Both',
-            }[target];
+            btn.textContent = 'Apply Both';
         }
     }
 
@@ -2127,28 +2015,6 @@ class ComiventureApp {
             btn.textContent = 'Regenerate';
             btn.disabled = false;
         }
-    }
-
-    async _savePanelToBank() {
-        const panel = this.selectedPanel;
-        if (!panel || !panel.image_hash) return;
-
-        const characterIds = Object.keys(panel.scripts || {});
-        for (const characterId of characterIds) {
-            try {
-                await api._post(`/api/characters/${characterId}/references`, {
-                    content_hash: panel.image_hash,
-                    source: 'generated',
-                });
-                // Reload character so the reference appears in the bank
-                await this._reloadCharacter(characterId);
-            } catch (error) {
-                console.error(`Failed to add to ${characterId} bank:`, error);
-            }
-        }
-
-        const names = characterIds.map(id => this.characters[id]?.name || id).join(', ');
-        console.log(`Saved panel to bank for: ${names}`);
     }
 
     _showApp() {

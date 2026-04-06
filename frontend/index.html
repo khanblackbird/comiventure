@@ -401,17 +401,15 @@
 
                 <!-- Panel context — shown when a panel is selected -->
                 <div id="panel-section" class="sidebar-section" hidden>
-                    <!-- Panel actions -->
+                    <!-- Panel actions: Generate or Upload, that's it -->
                     <div class="section-header">
                         <h3>Panel</h3>
                         <div class="section-actions">
-                            <button id="btn-edit-panel">Edit</button>
                             <button id="btn-generate-panel" disabled>Generate</button>
                             <label class="small-btn" title="Upload your own image">
                                 Upload
                                 <input type="file" id="panel-upload-image" accept="image/*" hidden>
                             </label>
-                            <button id="btn-save-to-bank" disabled title="Save to bank">Bank</button>
                         </div>
                     </div>
 
@@ -431,53 +429,44 @@
                         <input type="text" id="panel-narration" placeholder="Narration / caption text...">
                     </div>
 
-                    <!-- Scripts -->
-                    <details open class="sidebar-collapse">
-                        <summary>Scripts</summary>
-                        <div id="panel-scripts"></div>
-                        <div id="add-script-area">
-                            <select id="script-character-select">
-                                <option value="">Add character to panel...</option>
-                            </select>
-                        </div>
-                    </details>
+                    <!-- Feedback: always visible when panel has image -->
+                    <div id="panel-feedback" class="feedback-row" hidden>
+                        <button id="btn-thumbs-up" class="feedback-btn vote-up" title="Good image">✓</button>
+                        <button id="btn-thumbs-down" class="feedback-btn vote-down" title="Bad image">✗</button>
+                        <button id="btn-analyze-panel" class="small-btn" title="Analyze image & suggest tags">Analyze</button>
+                        <button id="btn-edit-panel" class="small-btn" title="Inpaint a region">Edit</button>
+                        <span id="feedback-count" class="feedback-count"></span>
+                    </div>
 
-                    <!-- Feedback & Review -->
-                    <details class="sidebar-collapse" id="panel-feedback" hidden>
-                        <summary>Feedback & Review</summary>
-                        <div class="feedback-row">
-                            <button id="btn-thumbs-up" class="feedback-btn vote-up" title="Good image">Accept</button>
-                            <button id="btn-thumbs-down" class="feedback-btn vote-down" title="Bad image">Reject</button>
-                            <button id="btn-review" class="small-btn">Review</button>
-                            <button id="btn-analyze-panel" class="small-btn">Analyze</button>
-                        </div>
+                    <!-- Analysis / review results (shown after Analyze) -->
+                    <div id="panel-analysis-result" hidden>
+                        <div class="review-caption" id="panel-analysis-caption"></div>
+                        <div id="panel-analysis-fields"></div>
                         <div id="review-result" hidden>
                             <div class="review-score"></div>
                             <div class="review-caption"></div>
                             <div class="review-differences"></div>
                             <div class="review-suggestion"></div>
-                            <button id="btn-apply-review" class="small-btn" hidden>Apply Suggestions</button>
-                        </div>
-                        <div id="panel-analysis-result" hidden>
-                            <div class="review-caption" id="panel-analysis-caption"></div>
-                            <div id="panel-analysis-fields"></div>
-                            <div class="feedback-row">
-                                <button id="btn-apply-to-scripts" class="small-btn">Apply to Scripts</button>
-                                <button id="btn-apply-to-character" class="small-btn">Apply to Character</button>
-                                <button id="btn-apply-to-both" class="small-btn">Apply Both</button>
-                            </div>
-                        </div>
-                    </details>
-
-                    <!-- Generation settings -->
-                    <details class="sidebar-collapse">
-                        <summary>Generation Settings</summary>
-                        <div class="negative-prompt-section">
-                            <textarea id="negative-prompt" rows="2" placeholder="Negative prompt..."></textarea>
                         </div>
                         <div class="feedback-row">
+                            <button id="btn-apply-to-both" class="small-btn">Apply</button>
+                        </div>
+                    </div>
+
+                    <!-- Scripts -->
+                    <div id="panel-scripts"></div>
+                    <div id="add-script-area">
+                        <select id="script-character-select">
+                            <option value="">Add character to panel...</option>
+                        </select>
+                    </div>
+
+                    <!-- Advanced (collapsed by default) -->
+                    <details class="sidebar-collapse">
+                        <summary>Advanced</summary>
+                        <textarea id="negative-prompt" rows="2" placeholder="Negative prompt..."></textarea>
+                        <div class="feedback-row">
                             <button id="btn-train-adapter" class="small-btn" disabled>Train</button>
-                            <span id="feedback-count" class="feedback-count"></span>
                             <label class="feedback-label">Rank:
                                 <select id="adapter-rank" class="small-select">
                                     <option value="2">2</option>
@@ -500,32 +489,27 @@
                     </details>
                 </div>
 
-                <!-- Script chat — helps write scripts for the selected panel -->
+                <!-- Chat — at the bottom of the sidebar -->
                 <div id="chat-section" class="sidebar-section sidebar-fill" hidden>
-                    <div class="section-header">
-                        <h3>Script Chat</h3>
-                    </div>
-                    <div id="chat-history">
-                        <!-- Chat messages rendered here -->
-                    </div>
+                    <div id="chat-history"></div>
                     <div id="chat-input-area">
                         <select id="chat-character-select">
                             <option value="narrator">Narrator</option>
                         </select>
-                        <div id="chat-actions-row">
-                            <button id="btn-suggest-scripts" class="small-btn" title="LLM suggests scripts based on context">Suggest</button>
-                            <button id="btn-react" class="small-btn" title="Character reacts to the panel">React</button>
-                        </div>
                         <div id="chat-input-row">
-                            <textarea id="chat-input" placeholder="Talk to the character about the scene..." rows="2"></textarea>
+                            <textarea id="chat-input" placeholder="Talk to the character..." rows="2"></textarea>
                             <button id="btn-send">Send</button>
+                        </div>
+                        <div id="chat-actions-row">
+                            <button id="btn-suggest-scripts" class="small-btn">Suggest</button>
+                            <button id="btn-react" class="small-btn">React</button>
                         </div>
                     </div>
                 </div>
 
                 <!-- No panel selected message -->
                 <div id="no-panel-message" class="sidebar-section">
-                    <p class="hint">Select a panel to add character scripts</p>
+                    <p class="hint">Select a panel to edit scripts</p>
                 </div>
             </aside>
         </main>
