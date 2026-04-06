@@ -234,6 +234,9 @@ def normalize_tag(text: str) -> str:
     "wearing a school uniform" → "school_uniform"
     """
     text = text.strip().lower()
+    # Filter out non-descriptive values
+    if text in ("", "none", "n/a", "unknown", "default", "empty"):
+        return ""
     # Strip filler words
     for filler in ("wearing ", "with ", "a ", "an ", "the "):
         if text.startswith(filler):
@@ -320,11 +323,15 @@ def tags_for_appearance(
 
     if outfit:
         for part in outfit.split(","):
-            tags.append(find_closest_tag(part.strip(), CLOTHING))
+            normalized = normalize_tag(part.strip())
+            if normalized:
+                tags.append(find_closest_tag(normalized, CLOTHING))
 
     if accessories:
         for part in accessories.split(","):
-            tags.append(find_closest_tag(part.strip(), ACCESSORIES))
+            normalized = normalize_tag(part.strip())
+            if normalized:
+                tags.append(find_closest_tag(normalized, ACCESSORIES))
 
     return [t for t in tags if t]
 
@@ -350,7 +357,9 @@ def tags_for_script(
 
     if outfit:
         for part in outfit.split(","):
-            tags.append(find_closest_tag(part.strip(), CLOTHING))
+            normalized = normalize_tag(part.strip())
+            if normalized:
+                tags.append(find_closest_tag(normalized, CLOTHING))
 
     if direction:
         tags.append(find_closest_tag(direction, FRAMING))

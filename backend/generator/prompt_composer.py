@@ -252,19 +252,24 @@ class PromptComposer:
         #    Multi-character: use AND separator (SDXL regional prompting)
         character_descriptions = []
         for character in characters:
-            parts = []
-            char_prompt = character.to_prompt()
-            if char_prompt:
-                parts.append(char_prompt)
+            char_tags = character.to_prompt().split(", ") if character.to_prompt() else []
 
             script = panel.get_script(character.character_id)
             if script:
-                script_prompt = script.to_prompt()
-                if script_prompt:
-                    parts.append(script_prompt)
+                script_tags = script.to_prompt().split(", ") if script.to_prompt() else []
+            else:
+                script_tags = []
 
-            if parts:
-                character_descriptions.append(", ".join(parts))
+            # Deduplicate: script tags override character defaults
+            seen = set()
+            combined = []
+            for tag in char_tags + script_tags:
+                if tag and tag not in seen:
+                    seen.add(tag)
+                    combined.append(tag)
+
+            if combined:
+                character_descriptions.append(", ".join(combined))
 
         if character_descriptions:
             if len(character_descriptions) == 1:
